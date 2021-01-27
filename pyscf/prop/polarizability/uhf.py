@@ -24,11 +24,14 @@ Non-relativistic static and dynamic polarizability and hyper-polarizability tens
 
 import time
 from functools import reduce
+import warnings
 import numpy
 from pyscf import lib
 from pyscf.lib import logger
 from pyscf.scf import ucphf
 from pyscf.scf import _response_functions  # noqa
+
+warnings.warn('Module polarizability is under testing')
 
 
 def dipole(mf):

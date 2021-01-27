@@ -30,7 +30,6 @@ import time
 import json
 import ctypes
 import numpy
-import numpy as np
 import h5py
 import scipy.special
 import scipy.linalg
@@ -2061,8 +2060,7 @@ class Mole(lib.StreamObject):
     >>> mol.charge = 1
     >>> mol.build()
     <class 'pyscf.gto.mole.Mole'> has no attributes Charge
-
-    '''
+    '''  # noqa: E501
 
     verbose = getattr(__config__, 'VERBOSE', logger.NOTE)
 
@@ -3519,11 +3517,9 @@ def _parse_nuc_mod(str_or_int_or_fn):
     return nucmod
 
 def _update_from_cmdargs_(mol):
-    # Ipython shell conflicts with optparse
-    # pass sys.args when using ipython
     try:
-        __IPYTHON__
-        #sys.stderr.write('Warn: Ipython shell catchs sys.args\n')
+        # Detect whether in Ipython shell
+        __IPYTHON__  # noqa:
         return
     except Exception:
         pass
