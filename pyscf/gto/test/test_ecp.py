@@ -322,6 +322,17 @@ Na F
         mat2 = mol.set_geom_('Na, 0.00, 0.00, 0.00; Cl, 0.00, 0.00, 2.051').intor('ECPscalar_ipnuc')
         self.assertAlmostEqual(abs(mat0.reshape(3,3,nao,nao)[:,2] - (mat2 - mat1) / 0.002).max(), 0, 5)
 
+    def test_ecp_giao(self):
+        mol = gto.M(atom='''
+                H    0.    0.00000000   -2.81947117
+                Kr   0.    0.00000000    0.00000000
+                H    0.    2.96479666    4.16597972 ''',
+        basis = {'H': 'def2-svp','Kr': 'lanl2dz'},
+        ecp = {'Kr' : 'lanl2dz'},
+        unit = 'Bohr')
+        h1 = mol.intor_asymmetric('ECPscalar_ignuc', 3)
+        self.assertAlmostEqual(lib.fp(h1), 0.0013322552240359609, 12)
+
 
 if __name__ == '__main__':
     print("Full Tests for ECP")
