@@ -132,9 +132,76 @@ class DFMP2(mp2.MP2):
     def nuc_grad_method(self):
         raise NotImplementedError
 
+    def energy(self, t2, eris):
+        '''MP2 energy'''
+        if hasattr(t2, 'emp2'):
+            return t2.emp2
+
+        nocc, nvir = t2.shape[1:3]
+        mo_coeff = eris.mo_coeff
+        naux = self.with_df.get_naoaux()
+        Lov = numpy.empty((naux, nocc*nvir))
+        p1 = 0
+        for istep, qov in enumerate(self.loop_ao2mo(mo_coeff, nocc)):
+            p0, p1 = p1, p1 + qov.shape[0]
+            Lov[p0:p1] = qov
+
+        ed = 0
+        ex = 0
+        for i in range(nocc):
+            buf = numpy.dot(Lov[:,i*nvir:(i+1)*nvir].T, Lov)
+            buf = buf.reshape(nvir,nocc,nvir)
+            ed += numpy.einsum('jab,ajb', t2[i], buf) * 2
+            ex -= numpy.einsum('jab,bja', t2[i], buf)
+        emp2_ss = (ed*0.5 + ex).real
+        emp2_os = ed.real*0.5
+        emp2 = lib.tag_array(emp2_ss+emp2_os, e_corr_ss=emp2_ss, e_corr_os=emp2_os)
+        return emp2
+
     # For non-canonical MP2
     def update_amps(self, t2, eris):
-        raise NotImplementedError
+        '''Update non-canonical MP2 amplitudes'''
+        #assert (isinstance(eris, _ChemistsERIs))
+        nocc, nvir = t2.shape[1:3]
+        fock = eris.fock
+        mo_e_o = eris.mo_energy[:nocc]
+        mo_e_v = eris.mo_energy[nocc:] + self.level_shift
+
+        foo = fock[:nocc,:nocc] - numpy.diag(mo_e_o)
+        fvv = fock[nocc:,nocc:] - numpy.diag(mo_e_v)
+        t2new  = lib.einsum('ijac,bc->ijab', t2, fvv)
+        t2new -= lib.einsum('ki,kjab->ijab', foo, t2)
+        t2new = t2new + t2new.transpose(1,0,3,2)
+
+        mo_coeff = eris.mo_coeff
+        naux = self.with_df.get_naoaux()
+        Lov = numpy.empty((naux, nocc*nvir))
+        p1 = 0
+        for istep, qov in enumerate(self.loop_ao2mo(mo_coeff, nocc)):
+            p0, p1 = p1, p1 + qov.shape[0]
+            Lov[p0:p1] = qov
+
+        for i in range(nocc):
+            buf = numpy.dot(Lov[:,i*nvir:(i+1)*nvir].T, Lov)
+            t2new[i] += buf.reshape(nvir,nocc,nvir).transpose(1,0,2)
+
+        eia = mo_e_o[:,None] - mo_e_v
+        t2new /= lib.direct_sum('ia,jb->ijab', eia, eia)
+
+        # In the iterative mp2 updates, Lov needs to be reconstructed to compute
+        # eneryg. Here to reuse Lov tensor to get mp2 energy.
+        ed = 0
+        ex = 0
+        for i in range(nocc):
+            buf = numpy.dot(Lov[:,i*nvir:(i+1)*nvir].T, Lov)
+            buf = buf.reshape(nvir,nocc,nvir)
+            ed += numpy.einsum('jab,ajb', t2[i], buf) * 2
+            ex -= numpy.einsum('jab,bja', t2[i], buf)
+        emp2_ss = (ed*0.5 + ex).real
+        emp2_os = ed.real*0.5
+        emp2 = lib.tag_array(emp2_ss+emp2_os, e_corr_ss=emp2_ss, e_corr_os=emp2_os)
+        t2new = lib.tag_array(t2new, emp2=emp2)
+        return t2new
 
     def init_amps(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
         return kernel(self, mo_energy, mo_coeff, eris, with_t2)

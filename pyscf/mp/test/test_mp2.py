@@ -36,7 +36,7 @@ def setUpModule():
                  'O': 'cc-pvdz',}
     mol.build()
     mf = scf.RHF(mol)
-    mf.conv_tol = 1e-14
+    mf.conv_tol = 1e-12
     mf.scf()
 
 def tearDownModule():
@@ -162,21 +162,28 @@ class KnownValues(unittest.TestCase):
         mf_df = mf.density_fit('weigend')
         pt = mp.dfmp2.DFMP2(mf_df)
         e, t2 = pt.kernel(mf.mo_energy, mf.mo_coeff)
+        self.assertAlmostEqual(e, -0.2039937219601945, 8)
+
         eris = mp.mp2._make_eris(pt, mo_coeff=mf.mo_coeff, ao2mofn=mf_df.with_df.ao2mo)
         g = eris.ovov.ravel()
         eia = mf.mo_energy[:nocc,None] - mf.mo_energy[nocc:]
         t2ref0 = g/(eia.reshape(-1,1)+eia.reshape(-1)).ravel()
         t2ref0 = t2ref0.reshape(nocc,nvir,nocc,nvir).transpose(0,2,1,3)
+        # mf.density_fit('weigend') will unset mf_df.converged, which can cause
+        # non-canonical MP2 iterations, set pt.converged to skip MP2 iterations
+        pt._scf.converged = True
         e, t2 = pt.kernel(mf.mo_energy, mf.mo_coeff)
         self.assertAlmostEqual(e, -0.20425449198334983, 8)
         self.assertAlmostEqual(abs(t2 - t2ref0).max(), 0, 8)
 
         pt = mp.MP2(mf.density_fit('weigend'))
+        pt._scf.converged = True
         pt.frozen = [1]
         e = pt.kernel(with_t2=False)[0]
         self.assertAlmostEqual(e, -0.14708846352674113, 8)
 
         pt = mp.dfmp2.DFMP2(mf.density_fit('weigend'))
+        pt._scf.converged = True
         e = pt.kernel(mf.mo_energy, mf.mo_coeff)[0]
         self.assertAlmostEqual(e, -0.20425449198334983, 8)
 
@@ -231,6 +238,7 @@ class KnownValues(unittest.TestCase):
         pt.ao2mo = lambda *args: mp.mp2._make_eris(pt, *args, ao2mofn=ao2mofn)
         e1 = pt.kernel()[0]
         pt = mp.mp2.MP2(mf.density_fit('weigend'))
+        pt._scf.converged = True
         e2 = pt.kernel()[0]
         self.assertAlmostEqual(e1, e2, 8)
 

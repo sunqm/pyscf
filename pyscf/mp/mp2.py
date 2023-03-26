@@ -82,7 +82,7 @@ def _iterative_kernel(mp, eris, verbose=None):
     cput1 = cput0 = (logger.process_clock(), logger.perf_counter())
     log = logger.new_logger(mp, verbose)
 
-    emp2, t2 = mp.init_amps(eris=eris)
+    emp2, t2 = mp.init_amps(eris=eris, with_t2=True)
     log.info('Init E(MP2) = %.15g', emp2)
 
     adiis = lib.diis.DIIS(mp)
@@ -513,6 +513,7 @@ class MP2(lib.StreamObject):
         self.e_corr_ss = None
         self.e_corr_os = None
         self.t2 = None
+        self.converged = mf.converged
         self._keys = set(self.__dict__.keys())
 
     @property
