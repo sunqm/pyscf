@@ -151,6 +151,7 @@ class KnownValues(unittest.TestCase):
     def test_ump2_with_df(self):
         pt = mp.ump2.UMP2(mf.density_fit('weigend'))
         pt.frozen = [1]
+        pt._scf.converged = True
         e = pt.kernel(with_t2=False)[0]
         self.assertAlmostEqual(e, -0.11264162733420097, 8)
 
@@ -193,6 +194,7 @@ class KnownValues(unittest.TestCase):
         e1 = pt.kernel()[0]
         self.assertAlmostEqual(e1, -0.16607937629805458, 8)
         pt = mp.ump2.UMP2(mf.density_fit('weigend'))
+        pt._scf.converged = True
         e2 = pt.kernel()[0]
         self.assertAlmostEqual(e1, e2, 8)
 
