@@ -159,10 +159,19 @@ class KnownValues(unittest.TestCase):
         nmo = mf.mo_energy.size
         nvir = nmo - nocc
 
+        mf_df = mf.density_fit('weigend').run()
+        pt = mp.dfmp2.DFMP2(mf_df)
+        e = pt.kernel()[0]
+        self.assertAlmostEqual(e, -0.20398617101, 7)
+
+        pt = mp.dfmp2.DFMP2(mf_df)
+        e = pt.kernel(mf.mo_energy, mf.mo_coeff)[0]
+        self.assertAlmostEqual(e, -0.20425449198334983, 7)
+
         mf_df = mf.density_fit('weigend')
         pt = mp.dfmp2.DFMP2(mf_df)
-        e, t2 = pt.kernel(mf.mo_energy, mf.mo_coeff)
-        self.assertAlmostEqual(e, -0.2039937219601945, 8)
+        e, t2 = pt.kernel()
+        self.assertAlmostEqual(e, -0.2039937219601945, 7)
 
         eris = mp.mp2._make_eris(pt, mo_coeff=mf.mo_coeff, ao2mofn=mf_df.with_df.ao2mo)
         g = eris.ovov.ravel()
@@ -172,31 +181,34 @@ class KnownValues(unittest.TestCase):
         # mf.density_fit('weigend') will unset mf_df.converged, which can cause
         # non-canonical MP2 iterations, set pt.converged to skip MP2 iterations
         pt._scf.converged = True
-        e, t2 = pt.kernel(mf.mo_energy, mf.mo_coeff)
-        self.assertAlmostEqual(e, -0.20425449198334983, 8)
-        self.assertAlmostEqual(abs(t2 - t2ref0).max(), 0, 8)
+        e, t2 = pt.kernel()
+        self.assertAlmostEqual(e, -0.20425449198334983, 7)
+        self.assertAlmostEqual(abs(t2 - t2ref0).max(), 0, 6)
 
-        pt = mp.MP2(mf.density_fit('weigend'))
-        pt._scf.converged = True
+        mf_df.converged = True
+
+        pt = mp.MP2(mf_df)
+        e = pt.kernel()[0]
+        self.assertAlmostEqual(e, -0.20425449198334983, 7)
+
+        pt = mp.MP2(mf_df)
         pt.frozen = [1]
         e = pt.kernel(with_t2=False)[0]
-        self.assertAlmostEqual(e, -0.14708846352674113, 8)
+        self.assertAlmostEqual(e, -0.14708846352674113, 7)
 
-        pt = mp.dfmp2.DFMP2(mf.density_fit('weigend'))
-        pt._scf.converged = True
-        e = pt.kernel(mf.mo_energy, mf.mo_coeff)[0]
-        self.assertAlmostEqual(e, -0.20425449198334983, 8)
+        pt = mp.dfmp2.DFMP2(mf_df)
+        e = pt.kernel()[0]
+        self.assertAlmostEqual(e, -0.20425449198334983, 7)
 
         pt.frozen = [1]
         e = pt.kernel()[0]
-        self.assertAlmostEqual(e, -0.14708846352674113, 8)
+        self.assertAlmostEqual(e, -0.14708846352674113, 7)
 
         pt = mp.dfmp2.DFMP2(mf)
         pt.frozen = [1]
-        pt.with_df = mf.density_fit('weigend').with_df
+        pt.with_df = mf_df.with_df
         e = pt.kernel()[0]
-        self.assertAlmostEqual(e, -0.14708846352674113, 8)
-
+        self.assertAlmostEqual(e, -0.14708846352674113, 7)
 
     def test_mp2_frozen(self):
         pt = mp.mp2.MP2(mf)

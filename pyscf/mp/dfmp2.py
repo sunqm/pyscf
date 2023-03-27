@@ -134,9 +134,6 @@ class DFMP2(mp2.MP2):
 
     def energy(self, t2, eris):
         '''MP2 energy'''
-        if hasattr(t2, 'emp2'):
-            return t2.emp2
-
         nocc, nvir = t2.shape[1:3]
         mo_coeff = eris.mo_coeff
         naux = self.with_df.get_naoaux()
@@ -187,20 +184,6 @@ class DFMP2(mp2.MP2):
 
         eia = mo_e_o[:,None] - mo_e_v
         t2new /= lib.direct_sum('ia,jb->ijab', eia, eia)
-
-        # In the iterative mp2 updates, Lov needs to be reconstructed to compute
-        # eneryg. Here to reuse Lov tensor to get mp2 energy.
-        ed = 0
-        ex = 0
-        for i in range(nocc):
-            buf = numpy.dot(Lov[:,i*nvir:(i+1)*nvir].T, Lov)
-            buf = buf.reshape(nvir,nocc,nvir)
-            ed += numpy.einsum('jab,ajb', t2[i], buf) * 2
-            ex -= numpy.einsum('jab,bja', t2[i], buf)
-        emp2_ss = (ed*0.5 + ex).real
-        emp2_os = ed.real*0.5
-        emp2 = lib.tag_array(emp2_ss+emp2_os, e_corr_ss=emp2_ss, e_corr_os=emp2_os)
-        t2new = lib.tag_array(t2new, emp2=emp2)
         return t2new
 
     def init_amps(self, mo_energy=None, mo_coeff=None, eris=None, with_t2=WITH_T2):
@@ -214,41 +197,3 @@ scf.rohf.ROHF.DFMP2 = None
 scf.uhf.UHF.DFMP2 = None
 
 del (WITH_T2)
-
-
-if __name__ == '__main__':
-    from pyscf import scf
-    from pyscf import gto
-    mol = gto.Mole()
-    mol.verbose = 0
-    mol.atom = [
-        [8 , (0. , 0.     , 0.)],
-        [1 , (0. , -0.757 , 0.587)],
-        [1 , (0. , 0.757  , 0.587)]]
-
-    mol.basis = 'cc-pvdz'
-    mol.build()
-    mf = scf.RHF(mol).run()
-    pt = DFMP2(mf)
-    emp2, t2 = pt.kernel()
-    print(emp2 - -0.204004830285)
-
-    pt.with_df = df.DF(mol)
-    pt.with_df.auxbasis = 'weigend'
-    emp2, t2 = pt.kernel()
-    print(emp2 - -0.204254500453)
-
-    mf = scf.density_fit(scf.RHF(mol), 'weigend')
-    mf.kernel()
-    pt = DFMP2(mf)
-    emp2, t2 = pt.kernel()
-    print(emp2 - -0.203986171133)
-
-    pt.with_df = df.DF(mol)
-    pt.with_df.auxbasis = df.make_auxbasis(mol, mp2fit=True)
-    emp2, t2 = pt.kernel()
-    print(emp2 - -0.203738031827)
-
-    pt.frozen = 2
-    emp2, t2 = pt.kernel()
-    print(emp2 - -0.14433975122418313)
