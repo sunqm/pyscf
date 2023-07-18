@@ -660,13 +660,15 @@ def rdirect_bindm(intor, aosym, jkdescript,
     assert njk == n_dm or njk*4 == n_dm*3
 
     if vhfopt is None:
-        cintor = _fpointer(intor)
         cvhfopt = lib.c_null_ptr()
     else:
         vhfopt.set_dm(dms, atm, bas, env)
         cvhfopt = vhfopt._this
-        cintopt = vhfopt._cintopt
+    if vhfopt is None or vhfopt._intor is None:
+        cintor = _fpointer(intor)
+    else:
         cintor = getattr(libcvhf, vhfopt._intor)
+        cintopt = vhfopt._cintopt
     if cintopt is None:
         cintopt = make_cintopt(c_atm, c_bas, c_env, intor)
 

@@ -446,6 +446,8 @@ class DHF(hf.SCF):
     # corrections for small component when with_ssss is set to False
     ssss_approx = getattr(__config__, 'scf_dhf_SCF_ssss_approx', 'Visscher')
 
+    local_dcb = None  # can be set to 'a1n' or 'a2n'
+
     def __init__(self, mol):
         hf.SCF.__init__(self, mol)
         self._coulomb_level = 'SSSS' # 'SSSS' ~ LLLL+LLSS+SSSS
@@ -572,6 +574,22 @@ class DHF(hf.SCF):
 
 #TODO: prescreen for gaunt
             opt_gaunt = None
+
+        local_dcb = self.local_dcb or ''
+        if local_dcb.upper() == 'A1N':
+            set_vkscreen(opt_ssss, 'CVHFr_vknoscreen')
+            set_vkscreen(opt_ssll, 'CVHFr_vknoscreen')
+            opt_ssss.prescreen = 'CVHFrkbssss_a1n_prescreen'
+            opt_ssll.prescreen = 'CVHFrkbssll_a1n_prescreen'
+            opt_gaunt = _vhf.VHFOpt(mol)
+            opt_gaunt.prescreen = 'CVHFrkb_a1n_noscreen'
+        elif local_dcb.upper() == 'A2N':
+            set_vkscreen(opt_ssss, 'CVHFr_vknoscreen')
+            set_vkscreen(opt_ssll, 'CVHFr_vknoscreen')
+            opt_ssss.prescreen = 'CVHFrkbssss_a2n_prescreen'
+            opt_ssll.prescreen = 'CVHFrkbssll_a2n_prescreen'
+            opt_gaunt = _vhf.VHFOpt(mol)
+            opt_gaunt.prescreen = 'CVHFrkb_a2n_noscreen'
         return opt_llll, opt_ssll, opt_ssss, opt_gaunt
 
     def get_jk(self, mol=None, dm=None, hermi=1, with_j=True, with_k=True,
@@ -965,27 +983,3 @@ def _proj_dmll(mol_nr, dm_nr, mol):
     dm_ll = reduce(numpy.dot, (proj, dm_nr*.5, proj.T.conj()))
     dm[:n2c,:n2c] = (dm_ll + time_reversal_matrix(mol, dm_ll)) * .5
     return dm
-
-
-if __name__ == '__main__':
-    import pyscf.gto
-    mol = pyscf.gto.Mole()
-    mol.verbose = 5
-    mol.output = 'out_dhf'
-
-    mol.atom.extend([['He', (0.,0.,0.)], ])
-    mol.basis = {
-        'He': [(0, 0, (1, 1)),
-               (0, 0, (3, 1)),
-               (1, 0, (1, 1)), ]}
-    mol.build()
-
-##############
-# SCF result
-    method = UHF(mol)
-    energy = method.scf() #-2.38146942868
-    print(energy)
-    method.with_gaunt = True
-    print(method.scf()) # -2.38138339005
-    method.with_breit = True
-    print(method.scf()) # -2.38138339005
