@@ -324,8 +324,8 @@ def _angular_grids_legendre2d(n):
     xs, wt = scipy.special.roots_legendre(m)
     phi, wp = scipy.special.roots_legendre(m)
     theta = np.arccos(xs)
+    phi += 1.
     phi *= np.pi
-    phi += np.pi
     wp *= np.pi
     x = np.sin(theta[:,None]) * np.cos(phi)
     y = np.sin(theta[:,None]) * np.sin(phi)

@@ -97,7 +97,7 @@ void JKOperator_write_back(double *vjk, JKArray *jkarray, int *ao_loc,
                         j0 = ao_loc[jsh];
                         di = ao_loc[ish+1] - i0;
                         dj = ao_loc[jsh+1] - j0;
-                        pd = data + (i0 - block_i0) * block_dj + (j0 - block_j0) * di;
+                        pd = data + ((i0 - block_i0) * block_dj + (j0 - block_j0) * di) * ncomp;
                         pv = vjk + i0*vcol+j0 - voffset;
                         for (icomp = 0; icomp < ncomp; icomp++) {
                                 for (i = 0; i < di; i++) {
@@ -190,7 +190,7 @@ static void JKOperator_sanity_check_s8(int *shls_slice)
                 out->key_counts++; \
         } \
         double *v = out->data + *_poutptr; \
-        v += (i##0-ao_off[i##SH]) * shape[j##SH] + (j##0-ao_off[j##SH]) * d##i;
+        v += ((i##0-ao_off[i##SH]) * shape[j##SH] + (j##0-ao_off[j##SH]) * d##i) * ncomp;
 
 #define DECLARE(v, i, j) \
         int ncomp = out->ncomp; \

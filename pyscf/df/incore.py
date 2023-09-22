@@ -133,7 +133,7 @@ def cholesky_eri(mol, auxbasis='weigend+etb', auxmol=None,
             low = _eig_decompose(mol, j2c, lindep)
             decompose_j2c = 'eig'
     j2c = None
-    naoaux, naux = low.shape
+    naux, naoaux = low.shape
     log.debug('size of aux basis %d', naux)
     log.timer_debug1('2c2e', *t0)
 
