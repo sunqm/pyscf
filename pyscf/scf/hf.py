@@ -1523,7 +1523,7 @@ class SCF(lib.StreamObject):
 
     @property
     def opt(self):
-        self._opt[None]
+        return self._opt[None]
     @opt.setter
     def opt(self, x):
         self._opt[None] = x

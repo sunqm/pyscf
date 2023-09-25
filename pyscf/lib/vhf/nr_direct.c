@@ -474,3 +474,159 @@ void CVHFnr_direct_drv(int (*intor)(), void (*fdot)(), JKOperator **jkop,
         }
         free(block_iloc);
 }
+
+// Divide shells into subblocks with two cutting points specified in shls_lim.
+// The cutting points should not be placed inside any subblocks.
+static int _shls_block_partition_lim(int *block_loc, int *shls_slice,
+                                     int *shls_lim, int *ao_loc, int block_size)
+{
+        int lim0 = shls_lim[0];
+        int lim1 = shls_lim[1];
+        if (lim0 >= lim1) {
+                return CVHFshls_block_partition(block_loc, shls_slice, ao_loc, block_size);
+        }
+
+        int ish0 = shls_slice[0];
+        int ish1 = shls_slice[1];
+        int seg[4] = {ish0, lim0, lim1, ish1};
+        int count = CVHFshls_block_partition(block_loc, seg, ao_loc, block_size);
+        count += CVHFshls_block_partition(block_loc+count, seg+1, ao_loc, block_size);
+        count += CVHFshls_block_partition(block_loc+count, seg+2, ao_loc, block_size);
+        return count;
+}
+
+/*
+ * This driver is analogous to CVHFnr_direct_drv . It is to calculate vj, vk
+ * excluding the eri block [ix0:ix1,jx0:jx1,kx0:kx1,lx0:lx1].
+ * The boundary ix, jx, kx, lx are provided by shls_slice[8:16]
+ */
+void CVHFnr_direct_ex_drv(int (*intor)(), void (*fdot)(), JKOperator **jkop,
+                          double **dms, double **vjk, int n_dm, int ncomp,
+                          int *shls_slice, int *ao_loc,
+                          CINTOpt *cintopt, CVHFOpt *vhfopt,
+                          int *atm, int natm, int *bas, int nbas, double *env)
+{
+        IntorEnvs envs = {natm, nbas, atm, bas, env, shls_slice, ao_loc, NULL,
+                cintopt, ncomp};
+        int idm;
+        double *tile_dms[n_dm];
+        for (idm = 0; idm < n_dm; idm++) {
+                CVHFzero_out_vjk(vjk[idm], jkop[idm], shls_slice, ao_loc, ncomp);
+                tile_dms[idm] = CVHFallocate_and_reorder_dm(jkop[idm], dms[idm],
+                                                            shls_slice, ao_loc);
+        }
+
+        size_t di = GTOmax_shell_dim(ao_loc, shls_slice, 4);
+        size_t cache_size = GTOmax_cache_size(intor, shls_slice, 4,
+                                              atm, natm, bas, nbas, env);
+        int ish0 = shls_slice[0];
+        int ish1 = shls_slice[1];
+        int jsh0 = shls_slice[2];
+        int jsh1 = shls_slice[3];
+        int ksh0 = shls_slice[4];
+        int ksh1 = shls_slice[5];
+        int lsh0 = shls_slice[6];
+        int lsh1 = shls_slice[7];
+        int nish = ish1 - ish0;
+        int njsh = jsh1 - jsh0;
+        int nksh = ksh1 - ksh0;
+        int nlsh = lsh1 - lsh0;
+        int *shls_excludes = shls_slice + 8;
+        int *block_iloc = malloc(sizeof(int) * (nish + njsh + nksh + nlsh + 4));
+        int *block_jloc = block_iloc + nish + 1;
+        int *block_kloc = block_jloc + njsh + 1;
+        int *block_lloc = block_kloc + nksh + 1;
+        size_t nblock_i = _shls_block_partition_lim(block_iloc, shls_slice+0, shls_excludes+0, ao_loc, AO_BLOCK_SIZE);
+        size_t nblock_j = _shls_block_partition_lim(block_jloc, shls_slice+2, shls_excludes+2, ao_loc, AO_BLOCK_SIZE);
+        size_t nblock_k = _shls_block_partition_lim(block_kloc, shls_slice+4, shls_excludes+4, ao_loc, AO_BLOCK_SIZE);
+        size_t nblock_l = _shls_block_partition_lim(block_lloc, shls_slice+6, shls_excludes+6, ao_loc, AO_BLOCK_SIZE);
+        size_t nblock_kl = nblock_k * nblock_l;
+        size_t nblock_jkl = nblock_j * nblock_kl;
+        int nblock_max = MAX(nblock_i, nblock_j);
+        nblock_max = MAX(nblock_max, nblock_k);
+        nblock_max = MAX(nblock_max, nblock_l);
+        // up to 1.6 GB per thread
+        int size_limit = (200000000 - di*di*di*di*ncomp - cache_size) / n_dm;
+
+#pragma omp parallel
+{
+        int ioff = ao_loc[ish0];
+        int joff = ao_loc[jsh0];
+        int koff = ao_loc[ksh0];
+        int loff = ao_loc[lsh0];
+        int i, j, k, l, n, r, blk_id;
+        JKArray *v_priv[n_dm];
+        for (i = 0; i < n_dm; i++) {
+                v_priv[i] = CVHFallocate_JKArray(jkop[i], shls_slice, ao_loc,
+                                                 ncomp, nblock_max, size_limit);
+        }
+        double *buf = malloc(sizeof(double) * (di*di*di*di*ncomp + di*di*2 + cache_size));
+        double *cache = buf + di*di*di*di*ncomp;
+#pragma omp for nowait schedule(dynamic, 1)
+        for (blk_id = 0; blk_id < nblock_jkl; blk_id++) {
+                r = blk_id;
+                j = r / nblock_kl ; r = r % nblock_kl;
+                k = r / nblock_l  ; r = r % nblock_l;
+                l = r;
+                int j0 = ao_loc[block_jloc[j]];
+                int k0 = ao_loc[block_kloc[k]];
+                int l0 = ao_loc[block_lloc[l]];
+                int j1 = ao_loc[block_jloc[j+1]];
+                int k1 = ao_loc[block_kloc[k+1]];
+                int l1 = ao_loc[block_lloc[l+1]];
+                for (n = 0; n < n_dm; n++) {
+                        JKArray *pv = v_priv[n];
+                        pv->ao_off[1] = j0 - joff;
+                        pv->ao_off[2] = k0 - koff;
+                        pv->ao_off[3] = l0 - loff;
+                        pv->shape[1] = j1 - j0;
+                        pv->shape[2] = k1 - k0;
+                        pv->shape[3] = l1 - l0;
+                        pv->block_quartets[1] = j;
+                        pv->block_quartets[2] = k;
+                        pv->block_quartets[3] = l;
+                }
+                for (i = 0; i < nblock_i; i++) {
+                        // Skip integrals in the segment [ix0:ix1,jx0:jx1,kx0:kx1,lx0:lx1] for
+                        // ix0, ix1, jx0, jx1, kx0, kx1, lx0, lx1 = shls_excludes
+                        if (shls_excludes[0] <= block_iloc[i] && block_iloc[i] < shls_excludes[1] &&
+                            shls_excludes[2] <= block_jloc[j] && block_jloc[j] < shls_excludes[3] &&
+                            shls_excludes[4] <= block_kloc[k] && block_kloc[k] < shls_excludes[5] &&
+                            shls_excludes[6] <= block_lloc[l] && block_lloc[l] < shls_excludes[7]) {
+                                continue;
+                        }
+                        int i0 = ao_loc[block_iloc[i]];
+                        int i1 = ao_loc[block_iloc[i+1]];
+                        for (n = 0; n < n_dm; n++) {
+                                JKArray *pv = v_priv[n];
+                                pv->ao_off[0] = i0 - ioff;
+                                pv->shape[0] = i1 - i0;
+                                pv->block_quartets[0] = i;
+                        }
+                        (*fdot)(intor, jkop, v_priv, tile_dms, buf, cache, n_dm,
+                                block_iloc+i, block_jloc+j, block_kloc+k, block_lloc+l,
+                                vhfopt, &envs);
+                }
+                for (n = 0; n < n_dm; n++) {
+                        if (v_priv[n]->stack_size >= size_limit) {
+#pragma omp critical
+        (*jkop[n]->write_back)(vjk[n], v_priv[n], shls_slice, ao_loc,
+                               block_iloc, block_jloc, block_kloc, block_lloc);
+                        }
+                }
+        }
+        for (n = 0; n < n_dm; n++) {
+                if (v_priv[n]->stack_size > 0) {
+#pragma omp critical
+        (*jkop[n]->write_back)(vjk[n], v_priv[n], shls_slice, ao_loc,
+                               block_iloc, block_jloc, block_kloc, block_lloc);
+                }
+                CVHFdeallocate_JKArray(v_priv[n]);
+        }
+        free(buf);
+}
+        for (idm = 0; idm < n_dm; idm++) {
+                free(tile_dms[idm]);
+        }
+        free(block_iloc);
+}
