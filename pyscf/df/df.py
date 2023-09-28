@@ -276,6 +276,8 @@ class DF(lib.StreamObject):
         '''Creates a temporary density fitting object for RSH-DF integrals.
         In this context, only LR or SR integrals for mol and auxmol are computed.
         '''
+        if omega is None:
+            omega = 0
         key = '%.6f' % omega
         if key in self._rsh_df:
             rsh_df = self._rsh_df[key]

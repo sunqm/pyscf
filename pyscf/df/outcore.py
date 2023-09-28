@@ -100,10 +100,20 @@ def cholesky_eri(mol, erifile, auxbasis='weigend+etb', dataname='j3c', tmpdir=No
 
 def cholesky_eri_b(mol, erifile, auxbasis='weigend+etb', dataname='j3c',
                    int3c='int3c2e', aosym='s2ij', int2c='int2c2e', comp=1,
-                   max_memory=MAX_MEMORY, auxmol=None, decompose_j2c='cd',
+                   max_memory=MAX_MEMORY, auxmol=None, decompose_j2c='CD',
                    lindep=LINEAR_DEP_THR, verbose=logger.NOTE):
     '''3-center 2-electron DF tensor. Similar to cholesky_eri while this
     function stores DF tensor in blocks.
+
+    Args:
+        dataname: string
+            Dataset label of the DF tensor in HDF5 file.
+        decompose_j2c: string
+            The method to decompose the metric defined by int2c. It can be set
+            to CD (cholesky decomposition) or ED (eigenvalue decomposition).
+        lindep : float
+            The threshold to discard linearly dependent basis when decompose_j2c
+            is set to ED.
     '''
     assert (aosym in ('s1', 's2ij'))
     log = logger.new_logger(mol, verbose)
@@ -114,15 +124,16 @@ def cholesky_eri_b(mol, erifile, auxbasis='weigend+etb', dataname='j3c',
     j2c = auxmol.intor(int2c, hermi=1)
     log.debug('size of aux basis %d', j2c.shape[0])
     time1 = log.timer('2c2e', *time0)
-    if decompose_j2c == 'eig':
+    decompose_j2c = decompose_j2c.upper()
+    if decompose_j2c != 'CD':
         low = _eig_decompose(mol, j2c, lindep)
     else:
         try:
             low = scipy.linalg.cholesky(j2c, lower=True)
-            decompose_j2c = 'cd'
+            decompose_j2c = 'CD'
         except scipy.linalg.LinAlgError:
             low = _eig_decompose(mol, j2c, lindep)
-            decompose_j2c = 'eig'
+            decompose_j2c = 'ED'
     j2c = None
     naoaux, naux = low.shape
     time1 = log.timer('Cholesky 2c2e', *time1)
@@ -158,7 +169,7 @@ def cholesky_eri_b(mol, erifile, auxbasis='weigend+etb', dataname='j3c',
             b = lib.transpose(b.T, axes=(0,2,1)).reshape(naoaux,-1)
         else:
             b = b.reshape((-1,naoaux)).T
-        if decompose_j2c == 'eig':
+        if decompose_j2c != 'CD':
             return lib.dot(low, b)
 
         if b.flags.c_contiguous:
