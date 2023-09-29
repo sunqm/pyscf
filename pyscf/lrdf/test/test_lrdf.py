@@ -3,7 +3,7 @@ import numpy as np
 from pyscf import lib
 from pyscf import gto
 from pyscf.scf import hf
-from pyscf.df import lrdf
+from pyscf.lrdf import lrdf
 
 
 class KnownValues(unittest.TestCase):

@@ -1753,9 +1753,8 @@ employing the updated GWH rule from doi:10.1021/ja00480a005.''')
         # Higher accuracy is required for Schwartz inequality prescreening.
         cpu0 = (logger.process_clock(), logger.perf_counter())
         with mol.with_integral_screen(self.direct_scf_tol**2):
-            opt = _vhf.VHFOpt(mol, 'int2e', 'CVHFnrs8_prescreen',
-                              'CVHFsetnr_direct_scf',
-                              'CVHFsetnr_direct_scf_dm')
+            opt = _vhf._VHFOpt(mol, 'int2e', 'CVHFnrs8_prescreen',
+                              'CVHFnr_int2e_q_cond', 'CVHFnr_dm_cond')
             opt.direct_scf_tol = self.direct_scf_tol
         logger.timer(self, 'init_direct_scf', *cpu0)
         return opt

@@ -14,7 +14,9 @@
 # limitations under the License.
 #
 
+import numpy as np
 from pyscf import lib
+from pyscf.scf import _vhf
 from pyscf.lib import logger
 from pyscf.lrdf import lrdf
 from pyscf.grad import rhf as rhf_grad
@@ -35,17 +37,29 @@ class Gradients(rhf_grad.Gradients):
 
         lrdf_obj = self.base.with_df
         omega = lrdf_obj.omega
-        vj, vk = rhf_grad.Gradients.get_jk(self, mol, dm, hermi, -omega)
-        with mol.with_range_coulomb(-omega):
-            vj, vk = rhf_grad.get_jk(mol, dm)
+        # TODO: initialize q_cond with CVHFgrad_jk_direct_scf
+        #vhfopt = lrdf._VHFOpt(mol, 'int2e_ip1',
+        #                      prescreen='CVHFgrad_jk_prescreen', omega=omega)
+        vhfopt = lrdf._VHFOpt(mol, 'int2e_ip1', omega=omega)
+        vhfopt._this.q_cond = lrdf_obj._vhfopt._this.q_cond
+        vhfopt._this.dm_cond = lrdf_obj._vhfopt._this.dm_cond
+
+        with mol.with_short_range_coulomb(omega):
+            intor = mol._add_suffix('int2e_ip1')
+            vj, vk = _vhf.direct_mapdm(intor,  # (nabla i,j|k,l)
+                                       's2kl', # ip1_sph has k>=l,
+                                       ('lk->s1ij', 'jk->s1il'),
+                                       dm, 3, # xyz, 3 components
+                                       mol._atm, mol._bas, mol._env, vhfopt=vhfopt,
+                                       optimize_sr=True)
 
         with lrdf_obj.range_coulomb(omega):
             with lib.temporary_env(lrdf_obj, auxmol=lrdf_obj.lr_auxmol):
                 vj1, vk1 = df_rhf_grad.get_jk(self, mol, dm, hermi,
                                               decompose_j2c='ED',
                                               lindep=lrdf_obj.lr_thresh)
-        vj += vj1
-        vk += vk1
+        vj = vj1 - np.asarray(vj)
+        vk = vk1 - np.asarray(vk)
         if self.auxbasis_response:
             vj = lib.tag_array(vj, aux=vj1.aux)
             vk = lib.tag_array(vk, aux=vk1.aux)

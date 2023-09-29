@@ -7,6 +7,7 @@ Range separation JK builder
 import ctypes
 import tempfile
 import numpy as np
+import scipy.special
 from pyscf import gto
 from pyscf import lib
 from pyscf.lib import logger
@@ -14,23 +15,14 @@ from pyscf.df import df, df_jk, outcore, addons
 from pyscf.gto import ft_ao
 from pyscf.dft.gen_grid import LEBEDEV_NGRID, libdft
 from pyscf.gto.moleintor import make_cintopt
-from pyscf.pbc.df.incore import libpbc
-from pyscf.scf._vhf import libcvhf, _fpointer
+from pyscf.scf._vhf import libcvhf
+from pyscf.scf import _vhf
 
 MIN_CUTOFF = 1e-44
 AUXBASIS = {
     #'H': [[0, [1., 1]]],
     'default': [[0, [1., 1]], [1, [1., 1]], [2, [1., 1]]]
 }
-
-class _CVHFOpt(ctypes.Structure):
-    _fields_ = [('nbas', ctypes.c_int),
-                ('ngrids', ctypes.c_int),
-                ('log_cutoff', ctypes.c_double),
-                ('logq_cond', ctypes.c_void_p),
-                ('dm_cond', ctypes.c_void_p),
-                ('fprescreen', ctypes.c_void_p),
-                ('r_vkscreen', ctypes.c_void_p)]
 
 class LRDensityFitting(df.DF):
 
@@ -42,18 +34,15 @@ class LRDensityFitting(df.DF):
     lr_dfj = True
 
     def __init__(self, mol, auxbasis=None):
-        self._intor = 'int2e'
-        self._cintopt = None
-        self.q_cond = None
         self.lr_auxmol = None
         self.wcoulG = None
         self.Gv = None
+        self._vhfopt = None
         self._last_vs = (0, 0, 0)
         df.DF.__init__(self, mol, auxbasis)
 
     def reset(self, mol=None):
-        self.q_cond = None
-        self._cintopt = None
+        self._vhfopt = None
         return df.DF.reset(self, mol)
 
     def dump_flags(self, verbose=None):
@@ -81,24 +70,12 @@ class LRDensityFitting(df.DF):
         self.dump_flags()
 
         mol = self.mol
-        nbas = mol.nbas
-        self.q_cond = np.empty((6,nbas,nbas), dtype=np.float32)
-        ao_loc = mol.ao_loc
         omega = self.omega
         assert omega > 0
 
-        with mol.with_short_range_coulomb(omega):
-            self._cintopt = make_cintopt(
-                mol._atm, mol._bas, mol._env, self._intor)
-
-            with mol.with_integral_screen(self.direct_scf_tol**2):
-                libpbc.CVHFsetnr_sr_direct_scf(
-                    libpbc.int2e_sph, self._cintopt,
-                    self.q_cond.ctypes.data_as(ctypes.c_void_p),
-                    ao_loc.ctypes.data_as(ctypes.c_void_p),
-                    mol._atm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.natm),
-                    mol._bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.nbas),
-                    mol._env.ctypes.data_as(ctypes.c_void_p))
+        self._vhfopt = vhfopt = _VHFOpt(mol, 'int2e', omega=omega)
+        with mol.with_integral_screen(self.direct_scf_tol**2):
+            vhfopt.init_cvhf_direct(mol)
         cpu0 = log.timer('initializing q_cond', *cpu0)
 
         if self.lr_auxmol is None:
@@ -165,7 +142,7 @@ class LRDensityFitting(df.DF):
         return vj, vk
 
     def _get_jk_sr(self, dm, hermi=1, with_j=True, with_k=True):
-        if self.q_cond is None:
+        if self._vhfopt is None:
             self.build()
 
         assert hermi == 1
@@ -174,61 +151,21 @@ class LRDensityFitting(df.DF):
         mol = self.mol
         n_dm, nao = dm.shape[:2]
 
-        dm_cond = _make_dm_cond(mol, dm, self.direct_scf_tol)
-        vhfopt = _CVHFOpt()
-        vhfopt.dm_cond = dm_cond.ctypes.data_as(ctypes.c_void_p)
-        vhfopt.logq_cond = self.q_cond.ctypes.data_as(ctypes.c_void_p)
-        vhfopt.log_cutoff = np.log(self.direct_scf_tol)
-
-        intor = mol._add_suffix(self._intor)
-        cintor = getattr(libcvhf, intor)
-        fdot = getattr(libcvhf, 'CVHFdot_nr_sr_s8')
-
         vj = vk = None
-        dmsptr = []
-        vjkptr = []
-        fjk = []
-
-        if with_j:
-            fvj = _fpointer('CVHFnrs8_ji_s2kl')
-            vj = np.empty((n_dm,nao,nao))
-            for i in range(n_dm):
-                dmsptr.append(dm[i].ctypes.data_as(ctypes.c_void_p))
-                vjkptr.append(vj[i].ctypes.data_as(ctypes.c_void_p))
-                fjk.append(fvj)
-
-        if with_k:
-            fvk = _fpointer('CVHFnrs8_li_s2kj')
-            vk = np.empty((n_dm,nao,nao))
-            for i in range(n_dm):
-                dmsptr.append(dm[i].ctypes.data_as(ctypes.c_void_p))
-                vjkptr.append(vk[i].ctypes.data_as(ctypes.c_void_p))
-                fjk.append(fvk)
-
-        shls_slice = (ctypes.c_int*8)(*([0, mol.nbas]*4))
-        ao_loc = mol.ao_loc
-        n_ops = len(dmsptr)
-        comp = 1
+        if with_j and with_k:
+            out = np.empty((2*n_dm, nao, nao))
+            vj = out[:n_dm]
+            vk = out[n_dm:]
+        elif with_k:
+            vj = out = np.empty((n_dm, nao, nao))
+        elif with_k:
+            vk = out = np.empty((n_dm, nao, nao))
+        else:
+            return vj, vk
 
         with mol.with_short_range_coulomb(self.omega):
-            libcvhf.CVHFnr_sr_direct_drv(
-                cintor, fdot, (ctypes.c_void_p*n_ops)(*fjk),
-                (ctypes.c_void_p*n_ops)(*dmsptr),
-                (ctypes.c_void_p*n_ops)(*vjkptr),
-                ctypes.c_int(n_ops), ctypes.c_int(comp),
-                shls_slice, ao_loc.ctypes.data_as(ctypes.c_void_p),
-                self._cintopt, ctypes.byref(vhfopt),
-                mol._atm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.natm),
-                mol._bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.nbas),
-                mol._env.ctypes.data_as(ctypes.c_void_p))
-
-        if with_j:
-            for i in range(n_dm):
-                lib.hermi_triu(vj[i], 1, inplace=True)
-        if with_k:
-            if hermi != 0:
-                for i in range(n_dm):
-                    lib.hermi_triu(vk[i], hermi, inplace=True)
+            _vhf.direct(dm, mol._atm, mol._bas, mol._env, self._vhfopt, hermi,
+                        mol.cart, with_j, with_k, out, optimize_sr=True)
         logger.timer(mol, 'short range part vj and vk', *cpu0)
         return vj, vk
 
@@ -294,13 +231,48 @@ class LRDensityFitting(df.DF):
 
 LRDF = LRDensityFitting
 
-def _make_dm_cond(mol, dm, direct_scf_tol):
-    assert dm.ndim == 3
-    ao_loc = mol.ao_loc
-    dm_cond = [lib.condense('NP_absmax', d, ao_loc, ao_loc) for d in dm]
-    dm_cond = np.max(dm_cond, axis=0)
-    dm_cond += MIN_CUTOFF  # to remove divide-by-zero error
-    return np.asarray(dm_cond, order='C', dtype=np.float32)
+class _VHFOpt(_vhf._VHFOpt):
+    def __init__(self, mol, intor=None, prescreen='CVHFnoscreen',
+                 qcondname=None, dmcondname=None, omega=None):
+        assert omega is not None
+        with mol.with_short_range_coulomb(omega):
+            _vhf._VHFOpt.__init__(self, mol, intor, prescreen, qcondname, dmcondname)
+        self.omega = omega
+        self._this.direct_scf_cutoff = np.log(1e-14)
+
+    @property
+    def direct_scf_tol(self):
+        return np.exp(self._this.direct_scf_cutoff)
+    @direct_scf_tol.setter
+    def direct_scf_tol(self, v):
+        self._this.direct_scf_cutoff = np.log(v)
+
+    def init_cvhf_direct(self, mol, intor=None, qcondname=None):
+        nbas = mol.nbas
+        q_cond = np.empty((6,nbas,nbas), dtype=np.float32)
+        ao_loc = mol.ao_loc
+        cintopt = self._cintopt
+        with mol.with_short_range_coulomb(self.omega):
+            libcvhf.CVHFsetnr_sr_direct_scf(
+                libcvhf.int2e_sph, cintopt,
+                q_cond.ctypes.data_as(ctypes.c_void_p),
+                ao_loc.ctypes.data_as(ctypes.c_void_p),
+                mol._atm.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.natm),
+                mol._bas.ctypes.data_as(ctypes.c_void_p), ctypes.c_int(mol.nbas),
+                mol._env.ctypes.data_as(ctypes.c_void_p))
+
+        self._q_cond = q_cond
+        logq_cond = q_cond.ctypes.data_as(ctypes.c_void_p)
+        self._this.q_cond = logq_cond
+
+    def set_dm(self, dm, atm=None, bas=None, env=None):
+        assert dm[0].ndim == 2
+        ao_loc = self.mol.ao_loc_nr()
+        dm_cond = [lib.condense('NP_absmax', d, ao_loc, ao_loc) for d in dm]
+        dm_cond = np.max(dm_cond, axis=0)
+        dm_cond += MIN_CUTOFF  # to remove divide-by-zero error
+        self._dm_cond = np.asarray(dm_cond, order='C', dtype=np.float32)
+        self._this.dm_cond = self._dm_cond.ctypes.data_as(ctypes.c_void_p)
 
 def _quadrature_roots(n, omega):
     rs, ws = scipy.special.roots_hermite(n*2)

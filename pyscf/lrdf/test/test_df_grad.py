@@ -50,5 +50,5 @@ class KnownValues(unittest.TestCase):
         self.assertAlmostEqual(abs(g1-ref).max(), 0, 5)
 
 if __name__ == "__main__":
-    print("Full Tests for df.grad")
+    print("Full Tests for lrdf.grad")
     unittest.main()

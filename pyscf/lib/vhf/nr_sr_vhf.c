@@ -19,15 +19,11 @@ float NP_fmax(float *a, int nd, int di, int dj);
 int CVHFshls_block_partition(int *block_loc, int *shls_slice, int *ao_loc,
                              int block_size);
 
-void CVHFdot_nr_sr_s4(int (*intor)(), JKOperator **jkop, JKArray **vjk,
-                      double **dms, double *buf, double *cache, int n_dm,
-                      int *ishls, int *jshls, int *kshls, int *lshls,
-                      CVHFOpt *vhfopt, IntorEnvs *envs)
+void CVHFdot_sr_nrs1(int (*intor)(), JKOperator **jkop, JKArray **vjk,
+                     double **dms, double *buf, double *cache, int n_dm,
+                     int *ishls, int *jshls, int *kshls, int *lshls,
+                     CVHFOpt *vhfopt, IntorEnvs *envs)
 {
-        if (ishls[0] < jshls[0] || kshls[0] < lshls[0]) {
-                return;
-        }
-
         int *atm = envs->atm;
         int *bas = envs->bas;
         double *env = envs->env;
@@ -71,7 +67,7 @@ void CVHFdot_nr_sr_s4(int (*intor)(), JKOperator **jkop, JKArray **vjk,
                 shls[0] = ish;
                 ai = env[bas(PTR_EXP,ish) + bas(NPRIM_OF,ish)-1];
 
-                for (jsh = jsh0; jsh < MIN(ish+1,jsh1); jsh++) {
+                for (jsh = jsh0; jsh < jsh1; jsh++) {
                         if (q_ijij[ish*Nbas+jsh] < log_cutoff) {
                                 continue;
                         }
@@ -99,7 +95,7 @@ for (ksh = ksh0; ksh < ksh1; ksh++) {
         dm_max0 = MAX(dm_max0, dm_cond[ish*nbas+ksh]);
         dm_max0 = MAX(dm_max0, dm_cond[jsh*nbas+ksh]);
 
-        for (lsh = lsh0; lsh < MIN(ksh+1,lsh1); lsh++) {
+        for (lsh = lsh0; lsh < lsh1; lsh++) {
                 dm_max = dm_max0 + dm_cond[ksh*nbas+lsh] +
                          dm_cond[ish*nbas+lsh] + dm_cond[jsh*nbas+lsh];
                 log_dm = logf(dm_max);
@@ -149,14 +145,410 @@ for (ksh = ksh0; ksh < ksh1; ksh++) {
         }
 }
 
-void CVHFdot_nr_sr_s8(int (*intor)(), JKOperator **jkop, JKArray **vjk,
-                      double **dms, double *buf, double *cache, int n_dm,
-                      int *ishls, int *jshls, int *kshls, int *lshls,
-                      CVHFOpt *vhfopt, IntorEnvs *envs)
+void CVHFdot_sr_nrs2ij(int (*intor)(), JKOperator **jkop, JKArray **vjk,
+                       double **dms, double *buf, double *cache, int n_dm,
+                       int *ishls, int *jshls, int *kshls, int *lshls,
+                       CVHFOpt *vhfopt, IntorEnvs *envs)
+{
+        if (ishls[0] > jshls[0]) {
+                return CVHFdot_sr_nrs1(intor, jkop, vjk, dms, buf, cache, n_dm,
+                                       ishls, jshls, kshls, lshls, vhfopt, envs);
+        } else if (ishls[0] < jshls[0]) {
+                return;
+        }
+
+        int *atm = envs->atm;
+        int *bas = envs->bas;
+        double *env = envs->env;
+        int natm = envs->natm;
+        int nbas = envs->nbas;
+        int *ao_loc = envs->ao_loc;
+        CINTOpt *cintopt = envs->cintopt;
+        int ish0 = ishls[0];
+        int ish1 = ishls[1];
+        int jsh0 = jshls[0];
+        int jsh1 = jshls[1];
+        int ksh0 = kshls[0];
+        int ksh1 = kshls[1];
+        int lsh0 = lshls[0];
+        int lsh1 = lshls[1];
+        size_t Nbas = nbas;
+        size_t Nbas2 = Nbas * Nbas;
+        float *q_ijij = (float *)vhfopt->logq_cond;
+        float *q_iijj = q_ijij + Nbas2;
+        float *s_index = q_iijj + Nbas2;
+        float *xij_cond = s_index + Nbas2;
+        float *yij_cond = xij_cond + Nbas2;
+        float *zij_cond = yij_cond + Nbas2;
+        float *dm_cond = (float *)vhfopt->dm_cond;
+        float kl_cutoff, jl_cutoff, il_cutoff;
+        float log_cutoff = vhfopt->log_cutoff;
+        float omega = env[PTR_RANGE_OMEGA];
+        float omega2 = omega * omega;
+        float dm_max0, dm_max, log_dm;
+        float theta, theta_ij, theta_r2, skl_cutoff;
+        float xij, yij, zij, xkl, ykl, zkl, dx, dy, dz, r2;
+        int shls[4];
+        void (*pf)(double *eri, double *dm, JKArray *vjk, int *shls,
+                   int i0, int i1, int j0, int j1,
+                   int k0, int k1, int l0, int l1);
+        int notempty;
+        int ish, jsh, ksh, lsh, i0, j0, k0, l0, i1, j1, k1, l1, idm;
+        double ai, aj, ak, al, aij, akl;
+
+        for (ish = ish0; ish < ish1; ish++) {
+                shls[0] = ish;
+                ai = env[bas(PTR_EXP,ish) + bas(NPRIM_OF,ish)-1];
+
+                for (jsh = jsh0; jsh <= ish; jsh++) {
+                        if (q_ijij[ish*Nbas+jsh] < log_cutoff) {
+                                continue;
+                        }
+                        shls[1] = jsh;
+                        aj = env[bas(PTR_EXP,jsh) + bas(NPRIM_OF,jsh)-1];
+                        aij = ai + aj;
+                        theta_ij = omega2*aij / (omega2 + aij);
+                        kl_cutoff = log_cutoff - q_ijij[ish*Nbas+jsh];
+                        xij = xij_cond[ish * Nbas + jsh];
+                        yij = yij_cond[ish * Nbas + jsh];
+                        zij = zij_cond[ish * Nbas + jsh];
+                        skl_cutoff = log_cutoff - s_index[ish * Nbas + jsh];
+
+for (ksh = ksh0; ksh < ksh1; ksh++) {
+        if (q_iijj[ish*Nbas+ksh] < log_cutoff ||
+            q_iijj[jsh*Nbas+ksh] < log_cutoff) {
+                continue;
+        }
+        shls[2] = ksh;
+        ak = env[bas(PTR_EXP,ksh) + bas(NPRIM_OF,ksh)-1];
+        jl_cutoff = log_cutoff - q_iijj[ish*Nbas+ksh];
+        il_cutoff = log_cutoff - q_iijj[jsh*Nbas+ksh];
+
+        dm_max0 = dm_cond[ish*nbas+jsh];
+        dm_max0 = MAX(dm_max0, dm_cond[ish*nbas+ksh]);
+        dm_max0 = MAX(dm_max0, dm_cond[jsh*nbas+ksh]);
+
+        for (lsh = lsh0; lsh < lsh1; lsh++) {
+                dm_max = dm_max0 + dm_cond[ksh*nbas+lsh] +
+                         dm_cond[ish*nbas+lsh] + dm_cond[jsh*nbas+lsh];
+                log_dm = logf(dm_max);
+                if (q_ijij[ksh*Nbas+lsh] + log_dm < kl_cutoff ||
+                    q_iijj[jsh*Nbas+lsh] + log_dm < jl_cutoff ||
+                    q_iijj[ish*Nbas+lsh] + log_dm < il_cutoff) {
+                        continue;
+                }
+
+                al = env[bas(PTR_EXP,lsh) + bas(NPRIM_OF,lsh)-1];
+                akl = ak + al;
+                // theta = 1/(1/aij+1/akl+1/omega2);
+                theta = theta_ij*akl / (theta_ij + akl);
+
+                xkl = xij_cond[ksh * Nbas + lsh];
+                ykl = yij_cond[ksh * Nbas + lsh];
+                zkl = zij_cond[ksh * Nbas + lsh];
+                dx = xij - xkl;
+                dy = yij - ykl;
+                dz = zij - zkl;
+                r2 = dx * dx + dy * dy + dz * dz;
+                theta_r2 = logf(r2 + 1e-30f) + theta * r2 - log_dm;
+                if (theta_r2 + skl_cutoff > s_index[ksh*Nbas+lsh]) {
+                        continue;
+                }
+                shls[3] = lsh;
+                notempty = (*intor)(buf, NULL, shls,
+                                    atm, natm, bas, nbas, env, cintopt, cache);
+                if (notempty) {
+                        i0 = ao_loc[ish];
+                        j0 = ao_loc[jsh];
+                        k0 = ao_loc[ksh];
+                        l0 = ao_loc[lsh];
+                        i1 = ao_loc[ish+1];
+                        j1 = ao_loc[jsh+1];
+                        k1 = ao_loc[ksh+1];
+                        l1 = ao_loc[lsh+1];
+                        for (idm = 0; idm < n_dm; idm++) {
+                                pf = jkop[idm]->contract;
+                                (*pf)(buf, dms[idm], vjk[idm], shls,
+                                      i0, i1, j0, j1, k0, k1, l0, l1);
+                        }
+                }
+        }
+}
+                }
+        }
+}
+
+void CVHFdot_sr_nrs2kl(int (*intor)(), JKOperator **jkop, JKArray **vjk,
+                       double **dms, double *buf, double *cache, int n_dm,
+                       int *ishls, int *jshls, int *kshls, int *lshls,
+                       CVHFOpt *vhfopt, IntorEnvs *envs)
+{
+        if (kshls[0] > lshls[0]) {
+                return CVHFdot_sr_nrs1(intor, jkop, vjk, dms, buf, cache, n_dm,
+                                       ishls, jshls, kshls, lshls, vhfopt, envs);
+        } else if (kshls[0] < lshls[0]) {
+                return;
+        }
+
+        int *atm = envs->atm;
+        int *bas = envs->bas;
+        double *env = envs->env;
+        int natm = envs->natm;
+        int nbas = envs->nbas;
+        int *ao_loc = envs->ao_loc;
+        CINTOpt *cintopt = envs->cintopt;
+        int ish0 = ishls[0];
+        int ish1 = ishls[1];
+        int jsh0 = jshls[0];
+        int jsh1 = jshls[1];
+        int ksh0 = kshls[0];
+        int ksh1 = kshls[1];
+        int lsh0 = lshls[0];
+        int lsh1 = lshls[1];
+        size_t Nbas = nbas;
+        size_t Nbas2 = Nbas * Nbas;
+        float *q_ijij = (float *)vhfopt->logq_cond;
+        float *q_iijj = q_ijij + Nbas2;
+        float *s_index = q_iijj + Nbas2;
+        float *xij_cond = s_index + Nbas2;
+        float *yij_cond = xij_cond + Nbas2;
+        float *zij_cond = yij_cond + Nbas2;
+        float *dm_cond = (float *)vhfopt->dm_cond;
+        float kl_cutoff, jl_cutoff, il_cutoff;
+        float log_cutoff = vhfopt->log_cutoff;
+        float omega = env[PTR_RANGE_OMEGA];
+        float omega2 = omega * omega;
+        float dm_max0, dm_max, log_dm;
+        float theta, theta_ij, theta_r2, skl_cutoff;
+        float xij, yij, zij, xkl, ykl, zkl, dx, dy, dz, r2;
+        int shls[4];
+        void (*pf)(double *eri, double *dm, JKArray *vjk, int *shls,
+                   int i0, int i1, int j0, int j1,
+                   int k0, int k1, int l0, int l1);
+        int notempty;
+        int ish, jsh, ksh, lsh, i0, j0, k0, l0, i1, j1, k1, l1, idm;
+        double ai, aj, ak, al, aij, akl;
+
+        for (ish = ish0; ish < ish1; ish++) {
+                shls[0] = ish;
+                ai = env[bas(PTR_EXP,ish) + bas(NPRIM_OF,ish)-1];
+
+                for (jsh = jsh0; jsh < jsh1; jsh++) {
+                        if (q_ijij[ish*Nbas+jsh] < log_cutoff) {
+                                continue;
+                        }
+                        shls[1] = jsh;
+                        aj = env[bas(PTR_EXP,jsh) + bas(NPRIM_OF,jsh)-1];
+                        aij = ai + aj;
+                        theta_ij = omega2*aij / (omega2 + aij);
+                        kl_cutoff = log_cutoff - q_ijij[ish*Nbas+jsh];
+                        xij = xij_cond[ish * Nbas + jsh];
+                        yij = yij_cond[ish * Nbas + jsh];
+                        zij = zij_cond[ish * Nbas + jsh];
+                        skl_cutoff = log_cutoff - s_index[ish * Nbas + jsh];
+
+for (ksh = ksh0; ksh < ksh1; ksh++) {
+        if (q_iijj[ish*Nbas+ksh] < log_cutoff ||
+            q_iijj[jsh*Nbas+ksh] < log_cutoff) {
+                continue;
+        }
+        shls[2] = ksh;
+        ak = env[bas(PTR_EXP,ksh) + bas(NPRIM_OF,ksh)-1];
+        jl_cutoff = log_cutoff - q_iijj[ish*Nbas+ksh];
+        il_cutoff = log_cutoff - q_iijj[jsh*Nbas+ksh];
+
+        dm_max0 = dm_cond[ish*nbas+jsh];
+        dm_max0 = MAX(dm_max0, dm_cond[ish*nbas+ksh]);
+        dm_max0 = MAX(dm_max0, dm_cond[jsh*nbas+ksh]);
+
+        for (lsh = lsh0; lsh <= ksh; lsh++) {
+                dm_max = dm_max0 + dm_cond[ksh*nbas+lsh] +
+                         dm_cond[ish*nbas+lsh] + dm_cond[jsh*nbas+lsh];
+                log_dm = logf(dm_max);
+                if (q_ijij[ksh*Nbas+lsh] + log_dm < kl_cutoff ||
+                    q_iijj[jsh*Nbas+lsh] + log_dm < jl_cutoff ||
+                    q_iijj[ish*Nbas+lsh] + log_dm < il_cutoff) {
+                        continue;
+                }
+
+                al = env[bas(PTR_EXP,lsh) + bas(NPRIM_OF,lsh)-1];
+                akl = ak + al;
+                // theta = 1/(1/aij+1/akl+1/omega2);
+                theta = theta_ij*akl / (theta_ij + akl);
+
+                xkl = xij_cond[ksh * Nbas + lsh];
+                ykl = yij_cond[ksh * Nbas + lsh];
+                zkl = zij_cond[ksh * Nbas + lsh];
+                dx = xij - xkl;
+                dy = yij - ykl;
+                dz = zij - zkl;
+                r2 = dx * dx + dy * dy + dz * dz;
+                theta_r2 = logf(r2 + 1e-30f) + theta * r2 - log_dm;
+                if (theta_r2 + skl_cutoff > s_index[ksh*Nbas+lsh]) {
+                        continue;
+                }
+                shls[3] = lsh;
+                notempty = (*intor)(buf, NULL, shls,
+                                    atm, natm, bas, nbas, env, cintopt, cache);
+                if (notempty) {
+                        i0 = ao_loc[ish];
+                        j0 = ao_loc[jsh];
+                        k0 = ao_loc[ksh];
+                        l0 = ao_loc[lsh];
+                        i1 = ao_loc[ish+1];
+                        j1 = ao_loc[jsh+1];
+                        k1 = ao_loc[ksh+1];
+                        l1 = ao_loc[lsh+1];
+                        for (idm = 0; idm < n_dm; idm++) {
+                                pf = jkop[idm]->contract;
+                                (*pf)(buf, dms[idm], vjk[idm], shls,
+                                      i0, i1, j0, j1, k0, k1, l0, l1);
+                        }
+                }
+        }
+}
+                }
+        }
+}
+
+void CVHFdot_sr_nrs4(int (*intor)(), JKOperator **jkop, JKArray **vjk,
+                     double **dms, double *buf, double *cache, int n_dm,
+                     int *ishls, int *jshls, int *kshls, int *lshls,
+                     CVHFOpt *vhfopt, IntorEnvs *envs)
+{
+        if (ishls[0] < jshls[0] || kshls[0] < lshls[0]) {
+                return;
+        }
+
+        int *atm = envs->atm;
+        int *bas = envs->bas;
+        double *env = envs->env;
+        int natm = envs->natm;
+        int nbas = envs->nbas;
+        int *ao_loc = envs->ao_loc;
+        CINTOpt *cintopt = envs->cintopt;
+        int ish0 = ishls[0];
+        int ish1 = ishls[1];
+        int jsh0 = jshls[0];
+        int jsh1 = jshls[1];
+        int ksh0 = kshls[0];
+        int ksh1 = kshls[1];
+        int lsh0 = lshls[0];
+        int lsh1 = lshls[1];
+        size_t Nbas = nbas;
+        size_t Nbas2 = Nbas * Nbas;
+        float *q_ijij = (float *)vhfopt->logq_cond;
+        float *q_iijj = q_ijij + Nbas2;
+        float *s_index = q_iijj + Nbas2;
+        float *xij_cond = s_index + Nbas2;
+        float *yij_cond = xij_cond + Nbas2;
+        float *zij_cond = yij_cond + Nbas2;
+        float *dm_cond = (float *)vhfopt->dm_cond;
+        float kl_cutoff, jl_cutoff, il_cutoff;
+        float log_cutoff = vhfopt->log_cutoff;
+        float omega = env[PTR_RANGE_OMEGA];
+        float omega2 = omega * omega;
+        float dm_max0, dm_max, log_dm;
+        float theta, theta_ij, theta_r2, skl_cutoff;
+        float xij, yij, zij, xkl, ykl, zkl, dx, dy, dz, r2;
+        int shls[4];
+        void (*pf)(double *eri, double *dm, JKArray *vjk, int *shls,
+                   int i0, int i1, int j0, int j1,
+                   int k0, int k1, int l0, int l1);
+        int notempty;
+        int ish, jsh, ksh, lsh, i0, j0, k0, l0, i1, j1, k1, l1, idm;
+        double ai, aj, ak, al, aij, akl;
+
+        for (ish = ish0; ish < ish1; ish++) {
+                shls[0] = ish;
+                ai = env[bas(PTR_EXP,ish) + bas(NPRIM_OF,ish)-1];
+
+                for (jsh = jsh0; jsh < MIN(jsh1, ish+1); jsh++) {
+                        if (q_ijij[ish*Nbas+jsh] < log_cutoff) {
+                                continue;
+                        }
+                        shls[1] = jsh;
+                        aj = env[bas(PTR_EXP,jsh) + bas(NPRIM_OF,jsh)-1];
+                        aij = ai + aj;
+                        theta_ij = omega2*aij / (omega2 + aij);
+                        kl_cutoff = log_cutoff - q_ijij[ish*Nbas+jsh];
+                        xij = xij_cond[ish * Nbas + jsh];
+                        yij = yij_cond[ish * Nbas + jsh];
+                        zij = zij_cond[ish * Nbas + jsh];
+                        skl_cutoff = log_cutoff - s_index[ish * Nbas + jsh];
+
+for (ksh = ksh0; ksh < ksh1; ksh++) {
+        if (q_iijj[ish*Nbas+ksh] < log_cutoff ||
+            q_iijj[jsh*Nbas+ksh] < log_cutoff) {
+                continue;
+        }
+        shls[2] = ksh;
+        ak = env[bas(PTR_EXP,ksh) + bas(NPRIM_OF,ksh)-1];
+        jl_cutoff = log_cutoff - q_iijj[ish*Nbas+ksh];
+        il_cutoff = log_cutoff - q_iijj[jsh*Nbas+ksh];
+
+        dm_max0 = dm_cond[ish*nbas+jsh];
+        dm_max0 = MAX(dm_max0, dm_cond[ish*nbas+ksh]);
+        dm_max0 = MAX(dm_max0, dm_cond[jsh*nbas+ksh]);
+
+        for (lsh = lsh0; lsh < MIN(lsh1, ksh+1); lsh++) {
+                dm_max = dm_max0 + dm_cond[ksh*nbas+lsh] +
+                         dm_cond[ish*nbas+lsh] + dm_cond[jsh*nbas+lsh];
+                log_dm = logf(dm_max);
+                if (q_ijij[ksh*Nbas+lsh] + log_dm < kl_cutoff ||
+                    q_iijj[jsh*Nbas+lsh] + log_dm < jl_cutoff ||
+                    q_iijj[ish*Nbas+lsh] + log_dm < il_cutoff) {
+                        continue;
+                }
+
+                al = env[bas(PTR_EXP,lsh) + bas(NPRIM_OF,lsh)-1];
+                akl = ak + al;
+                // theta = 1/(1/aij+1/akl+1/omega2);
+                theta = theta_ij*akl / (theta_ij + akl);
+
+                xkl = xij_cond[ksh * Nbas + lsh];
+                ykl = yij_cond[ksh * Nbas + lsh];
+                zkl = zij_cond[ksh * Nbas + lsh];
+                dx = xij - xkl;
+                dy = yij - ykl;
+                dz = zij - zkl;
+                r2 = dx * dx + dy * dy + dz * dz;
+                theta_r2 = logf(r2 + 1e-30f) + theta * r2 - log_dm;
+                if (theta_r2 + skl_cutoff > s_index[ksh*Nbas+lsh]) {
+                        continue;
+                }
+                shls[3] = lsh;
+                notempty = (*intor)(buf, NULL, shls,
+                                    atm, natm, bas, nbas, env, cintopt, cache);
+                if (notempty) {
+                        i0 = ao_loc[ish];
+                        j0 = ao_loc[jsh];
+                        k0 = ao_loc[ksh];
+                        l0 = ao_loc[lsh];
+                        i1 = ao_loc[ish+1];
+                        j1 = ao_loc[jsh+1];
+                        k1 = ao_loc[ksh+1];
+                        l1 = ao_loc[lsh+1];
+                        for (idm = 0; idm < n_dm; idm++) {
+                                pf = jkop[idm]->contract;
+                                (*pf)(buf, dms[idm], vjk[idm], shls,
+                                      i0, i1, j0, j1, k0, k1, l0, l1);
+                        }
+                }
+        }
+}
+                }
+        }
+}
+
+void CVHFdot_sr_nrs8(int (*intor)(), JKOperator **jkop, JKArray **vjk,
+                     double **dms, double *buf, double *cache, int n_dm,
+                     int *ishls, int *jshls, int *kshls, int *lshls,
+                     CVHFOpt *vhfopt, IntorEnvs *envs)
 {
         if (ishls[0] > kshls[0]) {
-                return CVHFdot_nr_sr_s4(intor, jkop, vjk, dms, buf, cache, n_dm,
-                                        ishls, jshls, kshls, lshls, vhfopt, envs);
+                return CVHFdot_sr_nrs4(intor, jkop, vjk, dms, buf, cache, n_dm,
+                                       ishls, jshls, kshls, lshls, vhfopt, envs);
         } else if (ishls[0] < kshls[0]) {
                 return;
         } else if ((ishls[1] <= jshls[0]) || (kshls[1] <= lshls[0])) {
