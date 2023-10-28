@@ -36,6 +36,11 @@ try:
 except (ImportError, OSError):
     FOUND_TBLIS = False
 
+# Import the threading blas library, typically openblas_p, from numpy
+from numpy.linalg import lapack_lite
+_fblas = ctypes.CDLL(lapack_lite.__file__)
+del lapack_lite
+
 _np_helper = misc.load_library('libnp_helper')
 
 BLOCK_DIM = 192
@@ -220,7 +225,7 @@ def _contract(subscripts, *tensors, **kwargs):
     else:
         Bt = numpy.asarray(Bt.reshape(inner_shape,-1), order='C')
 
-    return dot(At,Bt).reshape(shapeCt, order='A').transpose(new_orderCt)
+    return At.dot(Bt).reshape(shapeCt, order='A').transpose(new_orderCt)
 
 def einsum(subscripts, *tensors, **kwargs):
     '''Perform a more efficient einsum via reshaping to a matrix multiply.
@@ -682,6 +687,9 @@ def hermi_sum(a, axes=None, hermi=HERMITIAN, inplace=False, out=None):
 def ddot(a, b, alpha=1, c=None, beta=0):
     '''Matrix-matrix multiplication for double precision arrays
     '''
+    if alpha == 1 and beta == 0:
+        return numpy.dot(a, b, out=c)
+
     m = a.shape[0]
     k = a.shape[1]
     n = b.shape[1]
@@ -717,6 +725,9 @@ def ddot(a, b, alpha=1, c=None, beta=0):
 def zdot(a, b, alpha=1, c=None, beta=0):
     '''Matrix-matrix multiplication for double complex arrays
     '''
+    if alpha == 1 and beta == 0:
+        return numpy.dot(a, b, out=c)
+
     m = a.shape[0]
     k = a.shape[1]
     n = b.shape[1]
@@ -770,10 +781,13 @@ def zdotNC(aR, aI, bR, bI, alpha=1, cR=None, cI=None, beta=0):
     return cR, cI
 
 def dot(a, b, alpha=1, c=None, beta=0):
+    if alpha == 1 and beta == 0:
+        return numpy.dot(a, b, out=c)
+
     atype = a.dtype
     btype = b.dtype
 
-    if atype == numpy.float64 and btype == numpy.float64:
+    if atype == btype == numpy.float64:
         if c is None or c.dtype == numpy.float64:
             return ddot(a, b, alpha, c, beta)
         else:
@@ -781,47 +795,13 @@ def dot(a, b, alpha=1, c=None, beta=0):
             c.real = ddot(a, b, alpha, cr, beta)
             return c
 
-    elif atype == numpy.complex128 and btype == numpy.complex128:
+    elif atype == btype == numpy.complex128:
         # Gauss's complex multiplication algorithm may affect numerical stability
         #k1 = ddot(a.real+a.imag, b.real.copy(), alpha)
         #k2 = ddot(a.real.copy(), b.imag-b.real, alpha)
         #k3 = ddot(a.imag.copy(), b.real+b.imag, alpha)
         #ab = k1-k3 + (k1+k2)*1j
         return zdot(a, b, alpha, c, beta)
-
-    elif atype == numpy.float64 and btype == numpy.complex128:
-        if b.flags.f_contiguous:
-            order = 'F'
-        else:
-            order = 'C'
-        cr = ddot(a, numpy.asarray(b.real, order=order), alpha)
-        ci = ddot(a, numpy.asarray(b.imag, order=order), alpha)
-        ab = numpy.ndarray(cr.shape, dtype=numpy.complex128, buffer=c)
-        if c is None or beta == 0:
-            ab.real = cr
-            ab.imag = ci
-        else:
-            ab *= beta
-            ab.real += cr
-            ab.imag += ci
-        return ab
-
-    elif atype == numpy.complex128 and btype == numpy.float64:
-        if a.flags.f_contiguous:
-            order = 'F'
-        else:
-            order = 'C'
-        cr = ddot(numpy.asarray(a.real, order=order), b, alpha)
-        ci = ddot(numpy.asarray(a.imag, order=order), b, alpha)
-        ab = numpy.ndarray(cr.shape, dtype=numpy.complex128, buffer=c)
-        if c is None or beta == 0:
-            ab.real = cr
-            ab.imag = ci
-        else:
-            ab *= beta
-            ab.real += cr
-            ab.imag += ci
-        return ab
 
     else:
         if c is None:
@@ -832,6 +812,25 @@ def dot(a, b, alpha=1, c=None, beta=0):
             c *= beta
             c += numpy.dot(a, b) * alpha
         return c
+
+# enum CBLAS_ORDER {CblasRowMajor=101, CblasColMajor=102};
+CblasRowMajor = ctypes.c_int(101)
+CblasColMajor = ctypes.c_int(102)
+# enum CBLAS_TRANSPOSE {CblasNoTrans=111, CblasTrans=112, CblasConjTrans=113};
+CBLAS_TRANSPOSE = {
+    'N': ctypes.c_int(111),
+    'T': ctypes.c_int(112),
+    'C': ctypes.c_int(113)
+}
+# enum CBLAS_UPLO {CblasUpper=121, CblasLower=122};
+CblasUpper = ctypes.c_int(121)
+CblasLower = ctypes.c_int(122)
+# enum CBLAS_DIAG {CblasNonUnit=131, CblasUnit=132};
+CblasNonUnit = ctypes.c_int(131)
+CblasUnit = ctypes.c_int(132)
+# enum CBLAS_SIDE {CblasLeft=141, CblasRight=142};
+CblasLeft = ctypes.c_int(141)
+CblasRight = ctypes.c_int(142)
 
 # a, b, c in C-order
 def _dgemm(trans_a, trans_b, m, n, k, a, b, c, alpha=1, beta=0,
@@ -847,18 +846,20 @@ def _dgemm(trans_a, trans_b, m, n, k, a, b, c, alpha=1, beta=0,
     assert (b.flags.c_contiguous)
     assert (c.flags.c_contiguous)
 
-    _np_helper.NPdgemm(ctypes.c_char(trans_b.encode('ascii')),
-                       ctypes.c_char(trans_a.encode('ascii')),
-                       ctypes.c_int(n), ctypes.c_int(m), ctypes.c_int(k),
-                       ctypes.c_int(b.shape[1]), ctypes.c_int(a.shape[1]),
-                       ctypes.c_int(c.shape[1]),
-                       ctypes.c_int(offsetb), ctypes.c_int(offseta),
-                       ctypes.c_int(offsetc),
-                       b.ctypes.data_as(ctypes.c_void_p),
-                       a.ctypes.data_as(ctypes.c_void_p),
-                       c.ctypes.data_as(ctypes.c_void_p),
-                       ctypes.c_double(alpha), ctypes.c_double(beta))
+    _fblas.cblas_dgemm(CblasRowMajor,
+                       CBLAS_TRANSPOSE[trans_a.upper()],
+                       CBLAS_TRANSPOSE[trans_b.upper()],
+                       ctypes.c_int(m), ctypes.c_int(n), ctypes.c_int(k),
+                       ctypes.c_double(alpha),
+                       ctypes.c_void_p(a.ctypes.data + 64 * offseta),
+                       ctypes.c_int(a.shape[1]),
+                       ctypes.c_void_p(b.ctypes.data + 64 * offsetb),
+                       ctypes.c_int(b.shape[1]),
+                       ctypes.c_double(beta),
+                       ctypes.c_void_p(c.ctypes.data + 64 * offsetc),
+                       ctypes.c_int(c.shape[1]))
     return c
+
 def _zgemm(trans_a, trans_b, m, n, k, a, b, c, alpha=1, beta=0,
            offseta=0, offsetb=0, offsetc=0):
     if a.size == 0 or b.size == 0:
@@ -871,23 +872,21 @@ def _zgemm(trans_a, trans_b, m, n, k, a, b, c, alpha=1, beta=0,
     assert (a.flags.c_contiguous)
     assert (b.flags.c_contiguous)
     assert (c.flags.c_contiguous)
-    assert (a.dtype == numpy.complex128)
-    assert (b.dtype == numpy.complex128)
-    assert (c.dtype == numpy.complex128)
 
-    _np_helper.NPzgemm(ctypes.c_char(trans_b.encode('ascii')),
-                       ctypes.c_char(trans_a.encode('ascii')),
-                       ctypes.c_int(n), ctypes.c_int(m), ctypes.c_int(k),
-                       ctypes.c_int(b.shape[1]), ctypes.c_int(a.shape[1]),
-                       ctypes.c_int(c.shape[1]),
-                       ctypes.c_int(offsetb), ctypes.c_int(offseta),
-                       ctypes.c_int(offsetc),
-                       b.ctypes.data_as(ctypes.c_void_p),
-                       a.ctypes.data_as(ctypes.c_void_p),
-                       c.ctypes.data_as(ctypes.c_void_p),
+    _fblas.cblas_zgemm(CblasRowMajor,
+                       CBLAS_TRANSPOSE[trans_a.upper()],
+                       CBLAS_TRANSPOSE[trans_b.upper()],
+                       ctypes.c_int(m), ctypes.c_int(n), ctypes.c_int(k),
                        (ctypes.c_double*2)(alpha.real, alpha.imag),
-                       (ctypes.c_double*2)(beta.real, beta.imag))
+                       ctypes.c_void_p(a.ctypes.data + 128 * offseta),
+                       ctypes.c_int(a.shape[1]),
+                       ctypes.c_void_p(b.ctypes.data + 128 * offsetb),
+                       ctypes.c_int(b.shape[1]),
+                       (ctypes.c_double*2)(beta.real, beta.imag),
+                       ctypes.c_void_p(c.ctypes.data + 128 * offsetc),
+                       ctypes.c_int(c.shape[1]))
     return c
+
 
 def frompointer(pointer, count, dtype=float):
     '''Interpret a buffer that the pointer refers to as a 1-dimensional array.

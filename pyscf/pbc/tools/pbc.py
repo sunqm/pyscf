@@ -35,9 +35,9 @@ def _fftn_blas(f, mesh):
     buf = np.empty(mesh, dtype=np.complex128)
     for i, fi in enumerate(f):
         buf[:] = fi.reshape(mesh)
-        g = lib.dot(buf.reshape(mesh[0],-1).T, expRGx, c=out[i].reshape(-1,mesh[0]))
-        g = lib.dot(g.reshape(mesh[1],-1).T, expRGy, c=buf.reshape(-1,mesh[1]))
-        g = lib.dot(g.reshape(mesh[2],-1).T, expRGz, c=out[i].reshape(-1,mesh[2]))
+        g = np.dot(buf.reshape(mesh[0],-1).T, expRGx, out=out[i].reshape(-1,mesh[0]))
+        g = np.dot(g.reshape(mesh[1],-1).T, expRGy, out=buf.reshape(-1,mesh[1]))
+        g = np.dot(g.reshape(mesh[2],-1).T, expRGz, out=out[i].reshape(-1,mesh[2]))
     return out.reshape(-1, *mesh)
 
 def _ifftn_blas(g, mesh):
@@ -51,9 +51,9 @@ def _ifftn_blas(g, mesh):
     buf = np.empty(mesh, dtype=np.complex128)
     for i, gi in enumerate(g):
         buf[:] = gi.reshape(mesh)
-        f = lib.dot(buf.reshape(mesh[0],-1).T, expRGx, 1./mesh[0], c=out[i].reshape(-1,mesh[0]))
-        f = lib.dot(f.reshape(mesh[1],-1).T, expRGy, 1./mesh[1], c=buf.reshape(-1,mesh[1]))
-        f = lib.dot(f.reshape(mesh[2],-1).T, expRGz, 1./mesh[2], c=out[i].reshape(-1,mesh[2]))
+        f = np.dot(buf.reshape(mesh[0],-1).T, expRGx, 1./mesh[0], out=out[i].reshape(-1,mesh[0]))
+        f = np.dot(f.reshape(mesh[1],-1).T, expRGy, 1./mesh[1], out=buf.reshape(-1,mesh[1]))
+        f = np.dot(f.reshape(mesh[2],-1).T, expRGz, 1./mesh[2], out=out[i].reshape(-1,mesh[2]))
     return out.reshape(-1, *mesh)
 
 if FFT_ENGINE == 'FFTW':
