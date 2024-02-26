@@ -16,7 +16,7 @@ def _orbital_basis(basis):
 
     r = {}
 
-    basis = manip.make_general(basis, False, True)
+    #basis = manip.make_general(basis, False, True)
     basis = sort.sort_basis(basis, False)
 
     # Elements for which we have electron basis
@@ -26,37 +26,41 @@ def _orbital_basis(basis):
     reference_list = []
 
     # Electron Basis
-    if electron_elements:
-        for z in electron_elements:
-            data = basis['elements'][z]
+    for z in electron_elements:
+        data = basis['elements'][z]
 
-            sym = lut.element_sym_from_Z(z, True)
+        sym = lut.element_sym_from_Z(z, True)
 
-            # List of shells
-            atom_shells = []
-            for shell in data['electron_shells']:
-                exponents = shell['exponents']
-                coefficients = shell['coefficients']
-                ncontr = len(coefficients)
-                nprim = len(exponents)
-                am = shell['angular_momentum']
-                assert len(am) == 1
-
+        # List of shells
+        atom_shells = []
+        sp_contraction = False
+        for shell in data['electron_shells']:
+            exponents = shell['exponents']
+            coefficients = shell['coefficients']
+            ncontr = len(coefficients)
+            am = shell['angular_momentum']
+            if len(am) == 1:
                 shell_data = [am[0]]
-                for iprim in range(nprim):
-                    row = [float(coefficients[ic][iprim]) for ic in range(ncontr)]
-                    row.insert(0, float(exponents[iprim]))
-                    shell_data.append(row)
+                for e_c in zip(exponents, *coefficients):
+                    shell_data.append([float(x) for x in e_c])
                 atom_shells.append(shell_data)
-            r[sym] = atom_shells
+            else:
+                sp_contraction = True  # such as Pople basis
+                for am in shell['angular_momentum']:
+                    shell_data = [am]
+                    for e, c in zip(exponents, coefficients[am]):
+                        shell_data.append([float(e), float(c)])
+                    atom_shells.append(shell_data)
+        if sp_contraction:
+            atom_shells = sorted(atom_shells, key=lambda x: x[0])
+        r[sym] = atom_shells
 
-            # Collect the literature references
-            for ref in data['references']:
-                for key in ref['reference_keys']:
-                    if key not in reference_list:
-                        reference_list.append(key)
+        # Collect the literature references
+        for ref in data['references']:
+            for key in ref['reference_keys']:
+                reference_list.append(key)
 
-    return r, reference_list
+    return r, list(set(reference_list))
 
 
 def _ecp_basis(basis):
@@ -64,40 +68,36 @@ def _ecp_basis(basis):
 
     r = {}
 
-    basis = manip.make_general(basis, False, True)
+    #basis = manip.make_general(basis, False, True)
     basis = sort.sort_basis(basis, False)
 
     # Elements for which we have ECP
     ecp_elements = [k for k, v in basis['elements'].items() if 'ecp_potentials' in v]
 
     # Electron Basis
-    if ecp_elements:
-        for z in ecp_elements:
-            data = basis['elements'][z]
-            sym = lut.element_sym_from_Z(z, True)
+    for z in ecp_elements:
+        data = basis['elements'][z]
+        sym = lut.element_sym_from_Z(z, True)
 
-            # Sort lowest->highest
-            ecp_list = sorted(data['ecp_potentials'], key=lambda x: x['angular_momentum'])
+        # Sort lowest->highest
+        ecp_list = sorted(data['ecp_potentials'], key=lambda x: x['angular_momentum'])
 
-            # List of ECP
-            atom_ecp = [data['ecp_electrons'], []]
-            for ir, pot in enumerate(ecp_list):
-                rexponents = pot['r_exponents']
-                gexponents = pot['gaussian_exponents']
-                coefficients = pot['coefficients']
-                am = pot['angular_momentum']
-                nprim = len(rexponents)
+        # List of ECP
+        atom_ecp = []
+        for ir, pot in enumerate(ecp_list):
+            rexponents = pot['r_exponents']
+            gexponents = pot['gaussian_exponents']
+            coefficients = pot['coefficients']
+            am = pot['angular_momentum']
+            assert len(am) == 1
 
-                shell_data = [am[0], []]
-                # PySCF wants the data in order of rexp=0, 1, 2, ..
-                for rexpval in range(max(rexponents) + 1):
-                    rcontr = []
-                    for i in range(nprim):
-                        if rexponents[i] == rexpval:
-                            rcontr.append([float(gexponents[i]), float(coefficients[0][i])])
-                    shell_data[1].append(rcontr)
-                atom_ecp[1].append(shell_data)
-            r[sym] = atom_ecp
+            # PySCF wants the data in order of rexp=0, 1, 2, ..
+            rcontr = [[] for _ in range(max(rexponents) + 1)]
+            for r_i, e, c in zip(rexponents, gexponents, coefficients[0]):
+                rcontr[r_i].append([float(e), float(c)])
+            shell_data = [am[0], rcontr]
+            atom_ecp.append(shell_data)
+        r[sym] = [data['ecp_electrons'], atom_ecp]
 
     return r
 
