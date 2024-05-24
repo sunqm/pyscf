@@ -8,8 +8,9 @@ crystal pseudo potential (PP).  Input ECP with .ecp attribute and PP with
 .pseudo attribute.
 
 See also
-pyscf/pbc/gto/pseudo/GTH_POTENTIALS for the GTH-potential format
-pyscf/examples/gto/05-input_ecp.py for quantum chemistry ECP format
+pyscf/pbc/gto/pseudo/GTH_POTENTIALS for the GTH-potential format.
+pyscf/examples/gto/05-input_ecp.py, and pyscf/examples/gto/05-input_pp.py for
+adding pseudo potential for molecules, 
 '''
 
 import numpy

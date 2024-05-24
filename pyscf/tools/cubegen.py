@@ -330,6 +330,7 @@ class Cube:
                 from pyscf.pbc.gto import Cell
                 d = data.split()
                 nx = int(d[0])
+                assert nx > 0 # assure unit in Bohr
                 x_vec = numpy.array([float(x) for x in d[1:]]) * nx
                 if isinstance(self.mol, Cell):
                     # Use an asymmetric mesh for tiling unit cells
