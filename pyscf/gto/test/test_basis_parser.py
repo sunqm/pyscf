@@ -94,6 +94,20 @@ C    SP
         basis_dat = gto.basis.parse_nwchem.parse(basis_str)
         self.assertEqual(len(basis_dat), 3)
 
+        basis_str = '''
+#BASIS SET: (3s) -> [1s]
+H    S
+     18.7311370     0.03349460
+      2.8253937     0.23472695
+      0.6401217     0.81375733
+#BASIS SET:
+#C    S
+#     1.5   1.
+C    SP
+      0.25  1.  1.'''
+      basis_dat = gto.basis.parse_nwchem.parse(basis_str, 'C')
+      self.assertEqual(len(basis_dat), 2)
+
     def test_parse_ecp(self):
         ecp_str = '''
 #

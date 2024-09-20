@@ -86,7 +86,7 @@ def parse(string, symb=None, optimize=True):
             raise BasisNotFoundError('Basis not found for %s' % symb)
 
     raw_basis = []
-    for dat in string.splitlines():
+    for dat in string:
         dat = dat.split('#')[0].strip()  # Use # to start comments
         dat_upper = dat.upper()
         if (dat and not dat_upper.startswith('END') and not dat_upper.startswith('BASIS')):
@@ -154,16 +154,20 @@ def search_seg(basisfile, symb):
     with open(basisfile, 'r') as fin:
         fdata = re.split(BASIS_SET_DELIMITER, fin.read())
     raw_basis = _search_basis_block(fdata, symb)
-    return [x for x in raw_basis.splitlines() if x and 'END' not in x]
+    return [x for x in raw_basis if x and 'END' not in x]
 
 def _search_basis_block(raw_data, symb):
-    raw_basis = ''
     for dat in raw_data:
-        dat0 = dat.split(None, 1)
-        if dat0 and dat0[0] == symb:
-            raw_basis = dat
-            break
-    return raw_basis
+        basis_lines = dat.splitlines()
+        for line in basis_lines:
+            # Skip all leading '# xxx' lines and empty lines
+            if not line or line.lstrip()[0] == '#':
+                continue
+            elif line.split(None, 1)[0] == symb:
+                return [x.strip() for x in basis_lines]
+            else:
+                break
+    return []
 
 def convert_basis_to_nwchem(symb, basis):
     '''Convert the internal basis format to NWChem format string'''
