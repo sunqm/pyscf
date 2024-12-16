@@ -1174,8 +1174,9 @@ void PBCVHFnr_sindex(int16_t *sindex, int *atm, int natm,
 {
         float fac_guess = .5f - logf(omega2)/4;
         int ijb, ib, jb, i0, j0, i1, j1, i, j, li, lj;
-        float dx, dy, dz, ai, aj, ci, cj, aij, a1, rr;
+        float dx, dy, dz, ai, aj, ci, cj, aij, a1, r2, r;
         float log_fac, theta, theta_r, r_guess, v;
+        float fi, fj, u, ti, tj, ti_fac, tj_fac;
 #pragma omp for schedule(dynamic, 1)
         for (ijb = 0; ijb < ngroups*(ngroups+1)/2; ijb++) {
                 ib = (int)(sqrt(2*ijb+.25) - .5 + 1e-7);
@@ -1193,7 +1194,9 @@ void PBCVHFnr_sindex(int16_t *sindex, int *atm, int natm,
                 cj = cs[jb];
 
                 aij = ai + aj;
-                a1 = ai * aj / aij;
+                fi = ai / aij;
+                fj = aj / aij;
+                a1 = ai * fj;
                 theta = omega2/(omega2+aij);
                 r_guess = sqrtf(-logf(1e-9f) / (aij * theta));
                 theta_r = theta * r_guess;
@@ -1206,8 +1209,14 @@ void PBCVHFnr_sindex(int16_t *sindex, int *atm, int natm,
                         dx = rx[i] - rx[j];
                         dy = ry[i] - ry[j];
                         dz = rz[i] - rz[j];
-                        rr = dx * dx + dy * dy + dz * dz;
-                        v = (li+lj)*logf(MAX(theta_r, 1.f)) - a1*rr + log_fac;
+                        r2 = dx * dx + dy * dy + dz * dz;
+                        r = sqrtf(r2);
+                        ti = fj * r + theta_r;
+                        tj = fi * r + theta_r;
+                        u = .5f / aij;
+                        ti_fac = .5f*li * logf(ti*ti + li*u);
+                        tj_fac = .5f*lj * logf(tj*tj + lj*u);
+                        v = ti_fac + tj_fac - a1*r2 + log_fac;
                         sindex[i*Nbas+j] = v * LOG_ADJUST;
                 } }
                 if (ib > jb) {

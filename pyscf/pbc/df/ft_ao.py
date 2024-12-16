@@ -690,15 +690,18 @@ class ExtendedMole(gto.Mole):
         theta = cell_exps[:,None] * supmol_exps / aij
         dr = np.linalg.norm(cell_bas_coords[:,None,:] - supmol_bas_coords, axis=2)
 
-        aij1 = 1./aij
-        aij2 = aij**-.5
-        dri = supmol_exps*aij1 * dr + aij2
-        drj = cell_exps[:,None]*aij1 * dr + aij2
-        norm_i = cell_cs * ((2*cell_l+1)/(4*np.pi))**.5
-        norm_j = supmol_cs * ((2*supmol_l+1)/(4*np.pi))**.5
-        fl = 2*np.pi/rs_cell.vol*dr/theta + 1.
-        ovlp = (np.pi**1.5 * norm_i[:,None]*norm_j * np.exp(-theta*dr**2) *
-                dri**cell_l[:,None] * drj**supmol_l * aij1**1.5 * fl)
+        dri = supmol_exps[None,:]/aij * dr
+        drj = cell_exps[:,None]/aij * dr
+        li = cell_l[:,None]
+        lj = supmol_l[None,:]
+        fac_dri = (li * .5/aij + dri**2) ** (li*.5)
+        fac_drj = (lj * .5/aij + drj**2) ** (lj*.5)
+        fl = 2*np.pi/vol * (dr/theta) + 1.
+        # See also lib/vhf/nr_sr_vhf.c the comments of the upper bound
+        # estimation for CVHFnr_sr_int2e_q_cond.
+        ovlp = ((cell_cs[:,None]*((2*li+1)/(4*np.pi))**.5) *
+                (supmol_cs*((2*lj+1)/(4*np.pi))**.5) * (np.pi/aij)**1.5 *
+                np.exp(-theta*dr**2) * fac_dri * fac_drj * fl)
         return ovlp > cutoff
 
     @staticmethod
@@ -769,22 +772,20 @@ def estimate_rcut(cell, precision=None):
     lj = ls
     cj = cs
     aij = ai + aj
-    lij = li + lj
     norm_ang = ((2*li+1)*(2*lj+1))**.5/(4*np.pi)
     c1 = ci * cj * norm_ang
     theta = ai * aj / aij
-    aij1 = aij**-.5
-    fac = np.pi**1.5*c1 * aij1**(lij+3) * (2*aij/np.pi)**.25 * aij**lij
+    fac = c1 * (np.pi/aij)**1.5 * (2*aij/np.pi)**.25
     fac /= precision
 
     r0 = cell.rcut
-    dri = aj*aij1 * r0 + 1.
-    drj = ai*aij1 * r0 + 1.
-    fl = 2*np.pi/cell.vol * r0/theta
-    r0 = (np.log(fac * dri**li * drj**lj * fl + 1.) / theta)**.5
+    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
+    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
+    fl = 2*np.pi/cell.vol * r0/theta + 1.
+    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
 
-    dri = aj*aij1 * r0 + 1.
-    drj = ai*aij1 * r0 + 1.
-    fl = 2*np.pi/cell.vol * r0/theta
-    r0 = (np.log(fac * dri**li * drj**lj * fl + 1.) / theta)**.5
+    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
+    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
+    fl = 2*np.pi/cell.vol * r0/theta + 1.
+    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
     return r0

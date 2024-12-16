@@ -167,7 +167,7 @@ void CVHFdot_sr_nrs2ij(int (*intor)(), JKOperator **jkop, JKArray **vjk,
         int ish0 = ishls[0];
         int ish1 = ishls[1];
         int jsh0 = jshls[0];
-        int jsh1 = jshls[1];
+        //int jsh1 = jshls[1];
         int ksh0 = kshls[0];
         int ksh1 = kshls[1];
         int lsh0 = lshls[0];
@@ -304,7 +304,7 @@ void CVHFdot_sr_nrs2kl(int (*intor)(), JKOperator **jkop, JKArray **vjk,
         int ksh0 = kshls[0];
         int ksh1 = kshls[1];
         int lsh0 = lshls[0];
-        int lsh1 = lshls[1];
+        //int lsh1 = lshls[1];
         size_t Nbas = nbas;
         size_t Nbas2 = Nbas * Nbas;
         float *q_ijij = (float *)vhfopt->logq_cond;
@@ -704,15 +704,15 @@ void CVHFnr_sr_direct_drv(int (*intor)(), void (*fdot)(), JKOperator **jkop,
         int ish0 = shls_slice[0];
         int ish1 = shls_slice[1];
         int jsh0 = shls_slice[2];
-        int jsh1 = shls_slice[3];
+        //int jsh1 = shls_slice[3];
         int ksh0 = shls_slice[4];
-        int ksh1 = shls_slice[5];
+        //int ksh1 = shls_slice[5];
         int lsh0 = shls_slice[6];
-        int lsh1 = shls_slice[7];
+        //int lsh1 = shls_slice[7];
         int nish = ish1 - ish0;
-        int njsh = jsh1 - jsh0;
-        int nksh = ksh1 - ksh0;
-        int nlsh = lsh1 - lsh0;
+        //int njsh = jsh1 - jsh0;
+        //int nksh = ksh1 - ksh0;
+        //int nlsh = lsh1 - lsh0;
         assert(njsh == nish);
         assert(nksh == nish);
         assert(nlsh == nish);
@@ -885,12 +885,13 @@ void CVHFnr_sr_int2e_q_cond(int (*intor)(), CINTOpt *cintopt, float *q_cond,
 
 #pragma omp parallel
 {
-        float fac_guess = .5f - logf(omega2)/4;
+        float fac_guess = .5f - logf(omega2)/4; // ~ log(sqrt(2.x/(omega*sqrt(pi))))
         int ish, jsh, li, lj;
         int ij, i, j, di, dj, dij, di2, dj2;
         float ai, aj, aij, ai_aij, a1, ci, cj;
         float xi, yi, zi, xj, yj, zj, xij, yij, zij;
-        float dx, dy, dz, r2, v, log_fac, r_guess, theta, theta_r;
+        float dx, dy, dz, r2, r, v, log_fac, r_guess, theta, theta_r;
+        float fi, fj, u, ti, tj, ti_fac, tj_fac;
         double qtmp, tmp;
         float log_qmax;
         int shls[4];
@@ -924,20 +925,75 @@ void CVHFnr_sr_int2e_q_cond(int (*intor)(), CINTOpt *cintopt, float *q_cond,
                         dy = yj - yi;
                         dz = zj - zi;
                         aij = ai + aj;
-                        ai_aij = ai / aij;
+                        fi = ai / aij;
+                        fj = aj / aij;
+                        ai_aij = fi;
                         a1 = ai_aij * aj;
                         xij = xi + ai_aij * dx;
                         yij = yi + ai_aij * dy;
                         zij = zi + ai_aij * dz;
 
                         theta = omega2/(omega2+aij);
+                        // r_guess is a guess for a radius, inside which the potential
+                        // from the estimator is always larger than actual potential
                         r_guess = R_GUESS_FAC / sqrtf(aij * theta);
                         theta_r = theta * r_guess;
                         // log(ci*cj * ((2*li+1)*(2*lj+1))**.5/(4*pi) * (pi/aij)**1.5)
                         log_fac = logf(ci*cj * sqrtf((2*li+1.f)*(2*lj+1.f))/(4*M_PI))
                                 + 1.5f*logf(M_PI/aij) + fac_guess;
                         r2 = dx * dx + dy * dy + dz * dz;
-                        v = (li+lj)*logf(MAX(theta_r, 1.f)) - a1*r2 + log_fac;
+                        r = sqrtf(r2);
+// u = .5/aij * (1 - root * akl/(aij+akl));
+// t = R_PA - root * akl/(aij+akl) * R_PQ;
+// The VRR iteration for constructing g[i] in libcint is
+//     g[i+1] = t * g[i] + i*u * g[i-1] = (t^2 + i*u) * g[i-1] + (i-1)*u*t * g[i-2]
+//
+// To estimate the upper bound of g[n] for a relative large separation of two
+// basis functions, t > 0 is assumed. The first few terms are
+// g[1] = t * g[0]
+// g[2] = t * g[1] + u * g[0] = (t^2+u) * g[0]
+// g[3] = t * g[2] + 2*u * g[1] = (t^2 + 3*u) * g[1]
+// g[4] = (t^2 + 3*u) * g[2] + 2*u*t * g[1]
+//      = (t^2 + 3*u) * (t^2+u) * g[0] + 2*u*t^2 * g[0]
+//      < (t^2 + 3*u) * (t^2+u) * g[0] + 2*u*(t^2+3*u) * g[0]
+//        = (t^2 + 3*u)^2 * g[0]
+// g[5] = t * g[4] + 4*u * g[3]
+//        < (t^2 + 3*u)^2 * g[1] + 4*u * (t^2 + 3*u) * g[1]
+//        < (t^2 + 5*u)^2 * g[1]
+//        < (t^2 + 5*u)^2.5 * g[0]
+// ...
+//
+// Higher order terms have the following inequality relations
+// g[i+1] < (t^2 + (i+1)*u)^(i/2) * g[1]    if i is even
+// g[i+1] < (t^2 + i*u)^((i+1)/2) * g[0]    if i is odd
+//
+// It can be proven as follows:
+// When i is even
+// g[i+1] = t * g[i] + i*u * g[i-1]
+//        < t * (t^2+(i-1)*u)^(i/2) * g[0] + i*u * (t^2+(i-1)*u)^(i/2-1) * g[1]
+//          = (t^2+(2*i-1)*u) * (t^2+(i-1)*u)^(i/2-1) * g[1]
+//          < (t^2 + (i+1)*u)^(i/2) * g[1]
+//          < (t^2 + (i+1)*u)^((i+1)/2) * g[0]
+// When i is odd
+// g[i+1] = t * g[i] + i*u * g[i-1]
+//        < t * (t^2+i*u)^((i-1)/2) * g[1] + i*u * (t^2+(i-2)*u)^((i-1)/2) * g[0]
+//        < t^2 * (t^2+i*u)^((i-1)/2) * g[0] + i*u * (t^2+i*u)^((i-1)/2) * g[0]
+//          = (t^2 + i*u)^((i+1)/2) * g[0]
+//          < (t^2 + (i+1)*u)^((i+1)/2) * g[0]
+// The upper bound of the (ij|ij) can be estimated using these inequalities
+//
+// When treating the orbital product in \int P_i(x) P_j(x) Gaussian(x) dx,
+// let F(x) = int P_i(x) Gaussian(x) dx
+// \int P_i(x) P_j(x) Gaussian(x) dx = \int F(x) d P_j(x)
+//     (mostly correct, needs proof) < (t^2+i*u)^(i/2) \int Gaussian(x) d P_j(x)
+//                                   < (t^2+i*u)^(i/2) (t^2+j*u)^(j/2) \int Gaussian(x) dx
+                        ti = fj * r + theta_r;
+                        tj = fi * r + theta_r;
+                        u = .5f / aij;
+                        ti_fac = .5f*li * logf(ti*ti + li*u);
+                        tj_fac = .5f*lj * logf(tj*tj + lj*u);
+
+                        v = ti_fac + tj_fac - a1*r2 + log_fac;
                         s_index[ish*Nbas+jsh] = v;
                         s_index[jsh*Nbas+ish] = v;
                         xij_cond[ish*Nbas+jsh] = xij;
