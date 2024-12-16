@@ -402,8 +402,10 @@ def _estimate_rcut(alpha, l, c, precision=INTEGRAL_PRECISION):
     # For kinetic operator, basis becomes 2*a*r*|orig-basis>.
     # A penalty term 4*a^2*r^2 is included in the estimation.
     fac *= 4*alpha**2
-    r0 = (np.log(fac * r0 * (r0*.5+a1)**(2*l+2) + 1.) / theta)**.5
-    r0 = (np.log(fac * r0 * (r0*.5+a1)**(2*l+2) + 1.) / theta)**.5
+    # To encounter the impact of r^n in integrals, see the comments in
+    # lib/vhf/nr_sr_vhf.c for the upper bound estimation
+    r0 = (np.log(fac * r0 * ((r0*.5)**2+a1)**(l+1) + 1.) / theta)**.5
+    r0 = (np.log(fac * r0 * ((r0*.5)**2+a1)**(l+1) + 1.) / theta)**.5
     return r0
 
 def bas_rcut(cell, bas_id, precision=None):

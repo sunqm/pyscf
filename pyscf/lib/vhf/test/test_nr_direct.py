@@ -308,16 +308,16 @@ class KnowValues(unittest.TestCase):
 
                     s_index = q_cond[2]
                     si_0 = s_index[0,0]
-                    si_others = s_index.diagonal()[1:]
+                    si_others = s_index.diagonal()
                     with mol.with_short_range_coulomb(omega):
                         ints = [abs(mol.intor_by_shell('int2e', (0,0,i,i))).max()
-                                for i in range(1, mol.nbas)]
+                                for i in range(mol.nbas)]
 
                         aij = akl = a * 2
                         omega2 = mol.omega**2
                         theta = 1/(2/aij+1/omega2)
-                        rr = rs**2
-                        estimator = rr * numpy.exp(si_0 + si_others - theta*rr)
+                        rr = numpy.append(0, rs)**2
+                        estimator = numpy.exp(si_0 + si_others - theta*rr)
                         assert all(estimator / ints > 1)
 
 

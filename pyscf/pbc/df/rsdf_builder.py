@@ -1521,24 +1521,23 @@ def estimate_ft_rcut(rs_cell, precision=None, exclude_dd_block=False):
     lj = ls
     cj = cs
     aij = ai + aj
-    lij = li + lj
     norm_ang = ((2*li+1)*(2*lj+1))**.5/(4*np.pi)
     c1 = ci * cj * norm_ang
     theta = ai * aj / aij
-    aij1 = aij**-.5
-    fac = np.pi**1.5*c1 * aij1**(lij+3) * (2*aij/np.pi)**.25 * aij**lij
+    fac = c1 * (np.pi/aij)**1.5 * (2*aij/np.pi)**.25
     fac /= precision
 
     r0 = rs_cell.rcut
-    dri = aj*aij1 * r0 + 1.
-    drj = ai*aij1 * r0 + 1.
-    fl = 2*np.pi*r0/theta + 1.
-    r0 = (np.log(fac * dri**li * drj**lj * fl + 1.) / theta)**.5
+    # See also the estimator implemented in lib/vhf/nr_sr_vhf.c
+    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
+    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
+    fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
+    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
 
-    dri = aj*aij1 * r0 + 1.
-    drj = ai*aij1 * r0 + 1.
-    fl = 2*np.pi/rs_cell.vol*r0/theta
-    r0 = (np.log(fac * dri**li * drj**lj * fl + 1.) / theta)**.5
+    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
+    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
+    fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
+    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
     rcut = r0
 
     if exclude_dd_block:
@@ -1554,24 +1553,22 @@ def estimate_ft_rcut(rs_cell, precision=None, exclude_dd_block=False):
             lj = ls[smooth_mask]
             cj = cs[smooth_mask]
             aij = ai + aj
-            lij = li + lj
             norm_ang = ((2*li+1)*(2*lj+1))**.5/(4*np.pi)
             c1 = ci * cj * norm_ang
             theta = ai * aj / aij
-            aij1 = aij**-.5
-            fac = np.pi**1.5*c1 * aij1**(lij+3) * (2*aij/np.pi)**.25 * aij**lij
+            fac = c1 * (np.pi/aij)**1.5 * (2*aij/np.pi)**.25
             fac /= precision
 
             r0 = rs_cell.rcut
-            dri = aj*aij1 * r0 + 1.
-            drj = ai*aij1 * r0 + 1.
-            fl = 2*np.pi/rs_cell.vol*r0/theta
-            r0 = (np.log(fac * dri**li * drj**lj * fl + 1.) / theta)**.5
+            fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
+            fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
+            fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
+            r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
 
-            dri = aj*aij1 * r0 + 1.
-            drj = ai*aij1 * r0 + 1.
-            fl = 2*np.pi*r0/theta + 1.
-            r0 = (np.log(fac * dri**li * drj**lj * fl + 1.) / theta)**.5
+            fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
+            fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
+            fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
+            r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
             rcut[smooth_mask] = r0
     return rcut
 
