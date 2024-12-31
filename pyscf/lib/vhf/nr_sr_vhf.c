@@ -862,23 +862,33 @@ void CVHFnr_sr_int2e_q_cond(int (*intor)(), CINTOpt *cintopt, float *q_cond,
         float *ry = rx + nbas;
         float *rz = ry + nbas;
 
+        // see also the extract_pgto_params funciton in the pbc.gto.cell module
         for (int n = 0; n < nbas; n++) {
                 int ia = bas[ATOM_OF+n*BAS_SLOTS];
                 int nprim = bas[NPRIM_OF+n*BAS_SLOTS];
                 int nctr = bas[NCTR_OF+n*BAS_SLOTS];
                 int ptr_coord = atm[PTR_COORD+ia*ATM_SLOTS];
-                int ptr_coeff = bas[PTR_COEFF+n*BAS_SLOTS];
-                exps[n] = env[bas[PTR_EXP+n*BAS_SLOTS] + nprim-1];
+                int l = bas[ANG_OF+n*BAS_SLOTS];
+                double *es = env + bas[PTR_EXP+n*BAS_SLOTS];
+                double *cs = env + bas[PTR_COEFF+n*BAS_SLOTS];
+                float r2_max = -10.f;
+                for (int ip = 0; ip < nprim; ip++) {
+                        float e = es[ip];
+                        float c_max = fabs(env[ip]);
+                        for (int m = 1; m < nctr; m++) {
+                                float c1 = fabs(cs[m*nprim+ip]);
+                                c_max = MAX(c_max, c1);
+                        }
+                        float r2 = (logf(c_max*c_max*1e8f) + 2.303f*l) / e;
+                        if (r2 > r2_max) {
+                                r2_max = r2;
+                                exps[n] = e;
+                                cs[n] = c_max;
+                        }
+                }
                 rx[n] = env[ptr_coord+0];
                 ry[n] = env[ptr_coord+1];
                 rz[n] = env[ptr_coord+2];
-
-                float c_max = fabs(env[ptr_coeff + nprim-1]);
-                for (int m = 1; m < nctr; m++) {
-                        float c1 = fabs(env[ptr_coeff + (m+1)*nprim-1]);
-                        c_max = MAX(c_max, c1);
-                }
-                cs[n] = c_max;
         }
         float omega = env[PTR_RANGE_OMEGA];
         float omega2 = omega * omega;

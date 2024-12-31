@@ -1186,16 +1186,19 @@ def estimate_rcut(rs_cell, omega, precision=None,
         precision = rs_cell.precision * 1e-1
 
     rs_cell = rs_cell
-    exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'min')
+    exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
     ls = rs_cell._bas[:,gto.ANG_OF]
+    r2_cell = np.log(cs**2 / precision * 10**ls) / exps
+    diffused_idx = r2_cell.argmax()
 
-    exp_min_idx = exps.argmin()
-    cost = cs * (.5*abs(omega)*rs_cell.rcut)**ls / (2*exps)**(ls/2+.75)
-    ai_idx = ak_idx = cost.argmax()
+    #cost = cs * (.5*abs(omega)*rs_cell.rcut)**ls / (2*exps)**(ls/2+.75)
+    #ai_idx = ak_idx = cost.argmax()
+    ai_idx = ak_idx = diffused_idx
     compact_mask = rs_cell.bas_type != ft_ao.SMOOTH_BASIS
     compact_idx = np.where(compact_mask)[0]
     if exclude_dd_block and compact_idx.size > 0:
-        ak_idx = compact_idx[cost[compact_idx].argmax()]
+        #ak_idx = compact_idx[cost[compact_idx].argmax()]
+        ak_idx = compact_idx[r2_cell[compact_idx].argmax()]
     logger.debug2(rs_cell, 'ai_idx=%d ak_idx=%d', ai_idx, ak_idx)
     # Case 1: l in cell0, product kl ~ dc, product ij ~ dd and dc
     # This includes interactions (dc|dd)
@@ -1206,11 +1209,11 @@ def estimate_rcut(rs_cell, omega, precision=None,
     lj = ls
     cj = cs
     ai = exps[ai_idx]
-    li = rs_cell._bas[ai_idx,gto.ANG_OF]
+    li = ls[ai_idx]
     ci = cs[ai_idx]
-    al = exps[exp_min_idx]
-    ll = rs_cell._bas[exp_min_idx,gto.ANG_OF]
-    cl = cs[exp_min_idx]
+    al = exps[diffused_idx]
+    ll = ls[diffused_idx]
+    cl = cs[diffused_idx]
 
     aij = ai + aj
     akl = ak + al

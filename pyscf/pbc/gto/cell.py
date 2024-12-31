@@ -431,7 +431,7 @@ def estimate_rcut(cell, precision=None):
     if cell.use_loose_rcut:
         return cell.rcut_by_shells(precision).max()
 
-    exps, cs = _extract_pgto_params(cell, 'min')
+    exps, cs = _extract_pgto_params(cell, 'diffused')
     ls = cell._bas[:,mole.ANG_OF]
     rcut = _estimate_rcut(exps, ls, cs, precision)
     return rcut.max()
@@ -457,36 +457,63 @@ def estimate_ke_cutoff(cell, precision=None):
     if precision is None:
         precision = cell.precision
     #precision /= cell.atom_charges().sum()
-    exps, cs = _extract_pgto_params(cell, 'max')
+    exps, cs = _extract_pgto_params(cell, 'compact')
     ls = cell._bas[:,mole.ANG_OF]
     Ecut = _estimate_ke_cutoff(exps, ls, cs, precision, cell.omega)
     return Ecut.max()
 
-def _extract_pgto_params(cell, op='min'):
-    '''A helper function for estimate_xxx function'''
+def _extract_pgto_params(cell, op='diffused'):
+    '''A helper function to extract exponents and contraction coefficients for
+    estimate_xxx function
+    '''
     es = []
     cs = []
-    if op == 'min':
+    if op == 'diffused':
+        precision = cell.precision
+        for i in range(cell.nbas):
+            e = cell.bas_exp(i)
+            c = abs(cell._libcint_ctr_coeff(i)).max(axis=1)
+            l = cell.bas_angular(i)
+            # A quick estimation for the radius that each primitive GTO vanishes
+            r2 = np.log(c**2 / precision * 10**l) / e
+            idx = r2.argmax()
+            es.append(e[idx])
+            cs.append(c[idx].max())
+    elif op == 'compact':
+        precision = cell.precision
+        for i in range(cell.nbas):
+            e = cell.bas_exp(i)
+            c = abs(cell._libcint_ctr_coeff(i)).max(axis=1)
+            l = cell.bas_angular(i)
+            # A quick estimation for the resolution of planewaves that each
+            # primitive GTO requires
+            ke = np.log(c**2 / precision * 50**l) * e
+            idx = ke.argmax()
+            es.append(e[idx])
+            cs.append(c[idx].max())
+    elif op == 'min':
         for i in range(cell.nbas):
             e = cell.bas_exp(i)
             c = cell._libcint_ctr_coeff(i)
             idx = e.argmin()
             es.append(e[idx])
             cs.append(abs(c[idx]).max())
-    else:
+    elif op == 'max':
         for i in range(cell.nbas):
             e = cell.bas_exp(i)
             c = cell._libcint_ctr_coeff(i)
             idx = e.argmax()
             es.append(e[idx])
             cs.append(abs(c[idx]).max())
+    else:
+        raise RuntimeError(f'Unsupported operation {op}')
     return np.array(es), np.array(cs)
 
 def error_for_ke_cutoff(cell, ke_cutoff, omega=None):
     '''Error estimation based on nuclear attraction integrals'''
     if omega is None:
         omega = cell.omega
-    exps, cs = _extract_pgto_params(cell, 'max')
+    exps, cs = _extract_pgto_params(cell, 'compact')
     ls = cell._bas[:,mole.ANG_OF]
     norm_ang = (2*ls+1)/(4*np.pi)
     fac = 32*np.pi**2*(2*np.pi)**1.5 * cs**2*norm_ang / (2*exps)**(2*ls+.5)

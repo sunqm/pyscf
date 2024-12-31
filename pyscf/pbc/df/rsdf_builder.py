@@ -1428,28 +1428,30 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
         assert rs_cell.dimension == 0
         return np.zeros(1)
 
-    cell_exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'min')
-    ls = rs_cell._bas[:,gto.ANG_OF]
-
-    aux_exps = np.array([e.min() for e in rs_auxcell.bas_exps()])
-    aux_min_idx = aux_exps.argmin()
+    # Search for the most diffused auxiliary basis function
+    aux_exps, aux_cs = pbcgto.cell._extract_pgto_params(rs_auxcell, 'diffused')
+    aux_ls = rs_auxcell._bas[:,gto.ANG_OF]
+    r2_aux = np.log(aux_cs**2 / precision * 10**aux_ls) / aux_exps
     if exclude_d_aux:
         compact_aux_idx = np.where(rs_auxcell.bas_type != ft_ao.SMOOTH_BASIS)[0]
-        if compact_aux_idx.size > 0:
-            aux_min_idx = compact_aux_idx[aux_exps[compact_aux_idx].argmin()]
-    ak = aux_exps[aux_min_idx]
-    lk = rs_auxcell._bas[aux_min_idx,gto.ANG_OF]
+        ak_idx = compact_aux_idx[r2_aux[compact_aux_idx].argmax()]
+    else:
+        ak_idx = r2_aux.argmax()
+    lk = aux_ls[ak_idx]
+    ak = aux_exps[ak_idx]
+    ck = aux_cs[ak_idx]
 
-    ai_idx = cell_exps.argmin()
+    # the most diffused orbital basis
+    cell_exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
+    ls = rs_cell._bas[:,gto.ANG_OF]
+    r2_cell = np.log(cs**2 / precision * 10**ls) / cell_exps
+    ai_idx = r2_cell.argmax()
     ai = cell_exps[ai_idx]
     aj = cell_exps
-    li = rs_cell._bas[ai_idx,gto.ANG_OF]
+    li = ls[ai_idx]
     lj = ls
-
     ci = cs[ai_idx]
     cj = cs
-    # Note ck normalizes the auxiliary basis \int \chi_k dr to 1
-    ck = 1./(4*np.pi) / gto.gaussian_int(lk+2, ak)
 
     aij = ai + aj
     lij = li + lj
@@ -1473,7 +1475,7 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
         compact_mask = rs_cell.bas_type != ft_ao.SMOOTH_BASIS
         compact_idx = np.where(compact_mask)[0]
         if 0 < compact_idx.size < rs_cell.nbas:
-            compact_idx = compact_idx[cell_exps[compact_idx].argmin()]
+            compact_idx = compact_idx[r2_cell[compact_idx].argmax()]
             smooth_mask = ~compact_mask
             ai = cell_exps[compact_idx]
             li = ls[compact_idx]
@@ -1511,7 +1513,7 @@ def estimate_ft_rcut(rs_cell, precision=None, exclude_dd_block=False):
         precision = rs_cell.precision * 1e-2
 
     # consider only the most diffused component of a basis
-    exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'min')
+    exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
     ls = rs_cell._bas[:,gto.ANG_OF]
     ai_idx = exps.argmin()
     ai = exps[ai_idx]
@@ -1592,7 +1594,7 @@ def estimate_ke_cutoff_for_omega(cell, omega, precision=None):
     '''
     if precision is None:
         precision = cell.precision
-    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'max')
+    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'compact')
     ls = cell._bas[:,gto.ANG_OF]
     cs = gto.gto_norm(ls, exps)
     Ecut = aft._estimate_ke_cutoff(exps, ls, cs, precision, omega)
