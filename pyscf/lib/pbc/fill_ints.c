@@ -38,7 +38,9 @@ typedef int (*FPtrIntor)(double *, int *, int *, int, float *, CINTEnvVars *, BV
 typedef void (*FPtrFill)(FPtrIntor intor,
                          double *outR, double *outI, double *cache, int *cell0_shls,
                          float *rij_cond, CINTEnvVars *envs_cint, BVKEnvs *envs_bvk);
+void _extract_diffused_pgto_params(float *exps, float *cs, int *bas, int nbas, double *env);
 void PBCapprox_bvk_rcond(float *rcond, int ish_bvk, int jsh_bvk, BVKEnvs *envs_bvk,
+                         float *exps, float *cs,
                          int *atm, int natm, int *bas, int nbas, double *env,
                          float *cache);
 
@@ -1068,7 +1070,9 @@ static int bvk_rcond_size(int *cell0_shls, BVKEnvs *envs_bvk)
         }
         return nish * njsh * 3;
 }
+
 static void approx_bvk_rcond(float *rcond, int *cell0_shls, BVKEnvs *envs_bvk,
+                             float *exps, float *cs,
                              int *atm, int natm, int *bas, int nbas, double *env)
 {
         int *seg_loc = envs_bvk->seg_loc;
@@ -1091,7 +1095,7 @@ static void approx_bvk_rcond(float *rcond, int *cell0_shls, BVKEnvs *envs_bvk,
                 jseg1 = seg_loc[jsh_bvk+1];
                 nish = seg2sh[iseg1] - seg2sh[iseg0];
                 njsh = seg2sh[jseg1] - seg2sh[jseg0];
-                PBCapprox_bvk_rcond(rcond, ish_bvk, jsh_bvk, envs_bvk,
+                PBCapprox_bvk_rcond(rcond, ish_bvk, jsh_bvk, envs_bvk, exps, cs,
                                     atm, natm, bas, nbas, env, cache);
                 rcond += nish * njsh * 3;
         } }
@@ -1133,6 +1137,10 @@ void PBCfill_nr3c_drv(FPtrIntor intor, FPtrFill fill, int is_pbcintor,
         }
         envs_bvk.eta = eta;
 
+        float *exps = malloc(sizeof(float) * nbas * 2);
+        float *cs = exps + nbas;
+        _extract_diffused_pgto_params(exps, cs, bas, nbas, env);
+
         // if intor is a regular molecular integral function, calling the
         // general assemble3c function
         if (!is_pbcintor) {
@@ -1162,7 +1170,7 @@ void PBCfill_nr3c_drv(FPtrIntor intor, FPtrFill fill, int is_pbcintor,
                 cell0_shls[1] = jsh;
                 rij_size = bvk_rcond_size(cell0_shls, &envs_bvk);
                 rij_cond = malloc(sizeof(float) * rij_size*3);
-                approx_bvk_rcond(rij_cond, cell0_shls, &envs_bvk,
+                approx_bvk_rcond(rij_cond, cell0_shls, &envs_bvk, exps, cs,
                                  atm, natm, bas, nbas, env);
                 for (ksh = ksh0; ksh < ksh1; ksh++) {
                         ksh_bvk = ksh - nbasp + nbas_bvk;
@@ -1178,6 +1186,7 @@ void PBCfill_nr3c_drv(FPtrIntor intor, FPtrFill fill, int is_pbcintor,
         }
         free(cache);
 }
+        free(exps);
 }
 
 void PBCnr3c_fuse_dd_s1(double *j3c, double *j3c_dd,

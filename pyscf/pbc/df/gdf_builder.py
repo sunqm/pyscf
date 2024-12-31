@@ -938,23 +938,26 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
     if rs_cell.nbas == 0 or auxcell.nbas == 0:
         return np.zeros(1)
 
-    cell_exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'min')
-    ls = rs_cell._bas[:,gto.ANG_OF]
+    aux_exps, aux_cs = pbcgto.cell._extract_pgto_params(rs_auxcell, 'diffused')
+    aux_ls = rs_auxcell._bas[:,gto.ANG_OF]
+    r2_aux = np.log(aux_cs**2 / precision * 10**aux_ls) / aux_exps
+    ak_idx = r2_aux.argmax()
+    lk = aux_ls[ak_idx]
+    ak = aux_exps[ak_idx]
+    ck = aux_cs[ak_idx]
 
-    aux_exps = np.array([e.min() for e in auxcell.bas_exps()])
-    ai_idx = cell_exps.argmin()
-    ak_idx = aux_exps.argmin()
+    cell_exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
+    ls = rs_cell._bas[:,gto.ANG_OF]
+    r2_cell = np.log(cs**2 / precision * 10**ls) / exps
+    ai_idx = r2_cell.argmax()
     ai = cell_exps[ai_idx]
     aj = cell_exps
-    ak = aux_exps[ak_idx]
-    li = rs_cell._bas[ai_idx,gto.ANG_OF]
+    li = ls[ai_idx]
     lj = ls
-    lk = auxcell._bas[ak_idx,gto.ANG_OF]
-
     ci = cs[ai_idx]
     cj = cs
-    # Note ck normalizes the auxiliary basis \int \chi_k dr to 1
-    ck = 1./(4*np.pi) / gto.gaussian_int(lk+2, ak)
+    ## Note ck normalizes the auxiliary basis \int \chi_k dr to 1
+    #ck = 1./(4*np.pi) / gto.gaussian_int(lk+2, ak)
 
     aij = ai + aj
     lij = li + lj
@@ -978,7 +981,7 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
         compact_mask = rs_cell.bas_type != ft_ao.SMOOTH_BASIS
         compact_idx = np.where(compact_mask)[0]
         if 0 < compact_idx.size < rs_cell.nbas:
-            compact_idx = compact_idx[cell_exps[compact_idx].argmin()]
+            compact_idx = compact_idx[r2_cell[compact_idx].argmax()]
             smooth_mask = ~compact_mask
             ai = cell_exps[compact_idx]
             li = ls[compact_idx]

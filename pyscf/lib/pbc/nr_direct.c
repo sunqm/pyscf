@@ -528,7 +528,34 @@ void PBCVHF_contract_jk_s2kl(int (*intor)(), double *jk, double *dms, double *bu
         }
 }
 
+void _extract_diffused_pgto_params(float *es_eff, float *cs_eff, int *bas, int nbas, double *env)
+{
+        for (int n = 0; n < nbas; n++) {
+                int nprim = bas[NPRIM_OF+n*BAS_SLOTS];
+                int nctr = bas[NCTR_OF+n*BAS_SLOTS];
+                int l = bas[ANG_OF+n*BAS_SLOTS];
+                double *shell_es = env + bas[PTR_EXP+n*BAS_SLOTS];
+                double *shell_cs = env + bas[PTR_COEFF+n*BAS_SLOTS];
+                float r2_max = -10.f;
+                for (int ip = 0; ip < nprim; ip++) {
+                        float e = shell_es[ip];
+                        float c_max = fabs(shell_cs[ip]);
+                        for (int m = 1; m < nctr; m++) {
+                                float c1 = fabs(shell_cs[m*nprim+ip]);
+                                c_max = MAX(c_max, c1);
+                        }
+                        float r2 = (logf(c_max*c_max*1e8f) + 2.303f*l) / e;
+                        if (r2 > r2_max) {
+                                r2_max = r2;
+                                es_eff[n] = e;
+                                cs_eff[n] = c_max;
+                        }
+                }
+        }
+}
+
 static void approx_bvk_rcond0(float *rcond, int ish0, int ish1, BVKEnvs *envs_bvk,
+                              float *exps, float *cs,
                               int *atm, int natm, int *bas, int nbas, double *env)
 {
         int nbasp = envs_bvk->nbasp;
@@ -545,8 +572,8 @@ static void approx_bvk_rcond0(float *rcond, int ish0, int ish1, BVKEnvs *envs_bv
         float *zcond = rcond + rs_cell_nbas * nbas * 2;
         float *cache = malloc(sizeof(float) * nbas*3);
         float *xj = cache;
-        float *yj = cache + nbas;
-        float *zj = cache + nbas * 2;
+        float *yj = xj + nbas;
+        float *zj = yj + nbas;
         int ish, jsh, iseg, jseg, jsh0, jsh1;
         int ptr_coord, n;
         float ai, aj, aij, ci, cj, xi, yi, zi, xci, yci, zci;
@@ -560,7 +587,7 @@ static void approx_bvk_rcond0(float *rcond, int ish0, int ish1, BVKEnvs *envs_bv
 
         for (iseg = iseg0; iseg < iseg1; iseg++) {
                 ish = seg2sh[iseg];
-                ai = env[bas(PTR_EXP, ish) + bas(NPRIM_OF, ish) - 1];
+                ai = exps[ish];
                 ptr_coord = atm(PTR_COORD, bas(ATOM_OF, ish));
                 xi = env[ptr_coord+0];
                 yi = env[ptr_coord+1];
@@ -568,7 +595,7 @@ static void approx_bvk_rcond0(float *rcond, int ish0, int ish1, BVKEnvs *envs_bv
                 for (jseg = jseg0; jseg < jseg1; jseg++) {
                         jsh0 = seg2sh[jseg];
                         jsh1 = seg2sh[jseg+1];
-                        aj = env[bas(PTR_EXP, jsh0) + bas(NPRIM_OF, jsh0) - 1];
+                        aj = exps[jsh0];
                         aij = ai + aj;
                         ci = ai / aij;
                         cj = aj / aij;
@@ -588,6 +615,7 @@ static void approx_bvk_rcond0(float *rcond, int ish0, int ish1, BVKEnvs *envs_bv
 }
 
 void PBCapprox_bvk_rcond(float *rcond, int ish_bvk, int jsh_bvk, BVKEnvs *envs_bvk,
+                         float *exps, float *cs,
                          int *atm, int natm, int *bas, int nbas, double *env,
                          float *cache)
 {
@@ -631,11 +659,11 @@ void PBCapprox_bvk_rcond(float *rcond, int ish_bvk, int jsh_bvk, BVKEnvs *envs_b
         for (iseg = iseg0; iseg < iseg1; iseg++) {
                 ish0 = seg2sh[iseg];
                 ish1 = seg2sh[iseg+1];
-                ai = env[bas(PTR_EXP, ish0) + bas(NPRIM_OF, ish0) - 1];
+                ai = exps[ish0];
                 for (jseg = jseg0; jseg < jseg1; jseg++) {
                         jsh0 = seg2sh[jseg];
                         jsh1 = seg2sh[jseg+1];
-                        aj = env[bas(PTR_EXP, jsh0) + bas(NPRIM_OF, jsh0) - 1];
+                        aj = exps[jsh0];
                         aij = ai + aj;
                         ci = ai / aij;
                         cj = aj / aij;
@@ -753,9 +781,12 @@ void PBCVHF_direct_drv(void (*fdot)(), int (*intor)(),
                 seg_loc, seg2sh, cell0_ao_loc, shls_slice, NULL, NULL, NULL,
                 NULL, qindex, cutoff};
 
+        float *exps = malloc(sizeof(float) * nbas * 2);
+        float *cs = exps + nbas;
+        _extract_diffused_pgto_params(exps, cs, bas, nbas, env);
         int rs_cell_nbas = seg_loc[nbasp];
         float *rij_cond = malloc(sizeof(float) * rs_cell_nbas*nbas*3);
-        approx_bvk_rcond0(rij_cond, ish0, ish1, &envs_bvk,
+        approx_bvk_rcond0(rij_cond, ish0, ish1, &envs_bvk, exps, cs,
                           atm, natm, bas, nbas, env);
         int dsh_max = nimgs * 3;
         assert(env[PTR_RANGE_OMEGA] != 0);
@@ -784,6 +815,7 @@ void PBCVHF_direct_drv(void (*fdot)(), int (*intor)(),
         double *v_priv = calloc(size_v, sizeof(double));
         double *buf = malloc(sizeof(double) * MAX(cache_size, dsh_max*3));
         float *rkl_cond = malloc(sizeof(float) * dsh_max*dsh_max*3);
+
         int16_t *qk, *ql, *qcell0k, *qcell0l;
         int16_t kl_cutoff, qklkl_max;
 
@@ -815,7 +847,7 @@ void PBCVHF_direct_drv(void (*fdot)(), int (*intor)(),
                 cell0_shls[3] = l % nbasp;
                 bvk_cells[2] = k / nbasp;
                 bvk_cells[3] = l / nbasp;
-                PBCapprox_bvk_rcond(rkl_cond, k, l, &envs_bvk,
+                PBCapprox_bvk_rcond(rkl_cond, k, l, &envs_bvk, exps, cs,
                                     atm, natm, bas, nbas, env, (float *)buf);
 
                 for (ij = 0; ij < nish * njsh; ij++) {
@@ -846,6 +878,7 @@ void PBCVHF_direct_drv(void (*fdot)(), int (*intor)(),
         free(v_priv);
         free(rkl_cond);
 }
+        free(exps);
         free(rij_cond);
         free(qidx_iijj);
 }
@@ -888,9 +921,12 @@ void PBCVHF_direct_drv_nodddd(
                 seg_loc, seg2sh, cell0_ao_loc, shls_slice, NULL, NULL, NULL,
                 NULL, qindex, cutoff};
 
+        float *exps = malloc(sizeof(float) * nbas * 2);
+        float *cs = exps + nbas;
+        _extract_diffused_pgto_params(exps, cs, bas, nbas, env);
         int rs_cell_nbas = seg_loc[nbasp];
         float *rij_cond = malloc(sizeof(float) * rs_cell_nbas*nbas*3);
-        approx_bvk_rcond0(rij_cond, ish0, ish1, &envs_bvk,
+        approx_bvk_rcond0(rij_cond, ish0, ish1, &envs_bvk, exps, cs,
                           atm, natm, bas, nbas, env);
         int dsh_max = nimgs * 3;
         assert(env[PTR_RANGE_OMEGA] != 0);
@@ -974,7 +1010,7 @@ void PBCVHF_direct_drv_nodddd(
                 cell0_shls[3] = lshp;
                 bvk_cells[2] = k / nbasp;
                 bvk_cells[3] = l / nbasp;
-                PBCapprox_bvk_rcond(rkl_cond, k, l, &envs_bvk,
+                PBCapprox_bvk_rcond(rkl_cond, k, l, &envs_bvk, exps, cs,
                                     atm, natm, bas, nbas, env, (float *)buf);
 
                 if ((cell0_bastype[kshp] == DIFFUSED) &&
@@ -1028,6 +1064,7 @@ void PBCVHF_direct_drv_nodddd(
         free(v_priv);
         free(rkl_cond);
 }
+        free(exps);
         free(i_c_idx);
         free(rij_cond);
         free(qidx_iijj);
@@ -1127,34 +1164,42 @@ void PBCVHFnr_sindex(int16_t *sindex, int *atm, int natm,
         float *rx = cs + Nbas1;
         float *ry = rx + Nbas1;
         float *rz = ry + Nbas1;
-        int ptr_coord, nprim, nctr, n, m, l;
-        double exp_min, c_max, c1;
         int ngroups = 0;
         double exp_last = 0.;
         int l_last = -1;
-        for (n = 0; n < nbas; n++) {
-                ptr_coord = atm(PTR_COORD, bas(ATOM_OF, n));
+        for (int n = 0; n < nbas; n++) {
+                int ptr_coord = atm(PTR_COORD, bas(ATOM_OF, n));
                 rx[n] = env[ptr_coord+0];
                 ry[n] = env[ptr_coord+1];
                 rz[n] = env[ptr_coord+2];
-                nprim = bas(NPRIM_OF, n);
+                int nprim = bas(NPRIM_OF, n);
+                double *shell_es = env + bas[PTR_EXP+n*BAS_SLOTS];
                 // the most diffused function
-                exp_min = env[bas(PTR_EXP, n) + nprim - 1];
-                l = bas(ANG_OF, n);
+                double exp_min = shell_es[nprim - 1];
+                int l = bas(ANG_OF, n);
 
                 if (exp_min != exp_last || l_last != l) {
                         // partition all exponents into groups
-                        exps[ngroups] = exp_min;
-                        nctr = bas(NCTR_OF, n);
-                        c_max = fabs(env[bas(PTR_COEFF, n) + nprim - 1]);
-                        for (m = 1; m < nctr; m++) {
-                                c1 = fabs(env[bas(PTR_COEFF, n) + (m+1)*nprim - 1]);
-                                c_max = MAX(c_max, c1);
-                        }
-                        cs[ngroups] = c_max;
-                        exps_group_loc[ngroups] = n;
                         exp_last = exp_min;
                         l_last = l;
+                        int nctr = bas(NCTR_OF, n);
+                        double *shell_cs = env + bas[PTR_COEFF+n*BAS_SLOTS];
+                        float r2_max = -10.f;
+                        for (int ip = 0; ip < nprim; ip++) {
+                                float e = shell_es[ip];
+                                float c_max = fabs(shell_cs[ip]);
+                                for (int m = 1; m < nctr; m++) {
+                                        float c1 = fabs(shell_cs[m*nprim+ip]);
+                                        c_max = MAX(c_max, c1);
+                                }
+                                float r2 = (logf(c_max*c_max*1e8f) + 2.303f*l) / e;
+                                if (r2 > r2_max) {
+                                        r2_max = r2;
+                                        exps[ngroups] = e;
+                                        cs[ngroups] = c_max;
+                                }
+                        }
+                        exps_group_loc[ngroups] = n;
                         ngroups++;
                 }
         }

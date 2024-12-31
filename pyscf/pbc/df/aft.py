@@ -274,7 +274,7 @@ def estimate_ke_cutoff(cell, precision=None):
         return 0.
     if precision is None:
         precision = cell.precision
-    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'max')
+    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'compact')
     ls = cell._bas[:,gto.ANG_OF]
     cs = gto.gto_norm(ls, exps)
     Ecut = _estimate_ke_cutoff(exps, ls, cs, precision)
@@ -360,15 +360,15 @@ class _IntPPBuilder(Int3cBuilder):
         '''Estimate rcut for pp-loc part2 based on 3-center overlap integrals.
         '''
         precision = cell.precision
-        exps = np.array([e.min() for e in cell.bas_exps()])
+        exps, cs = pbcgto.cell._extract_pgto_params(cell, 'diffused')
         if exps.size == 0:
             return np.zeros(1)
 
         ls = cell._bas[:,gto.ANG_OF]
-        cs = gto.gto_norm(ls, exps)
-        ai_idx = exps.argmin()
+        r2_cell = np.log(cs**2 / precision * 10**ls) / exps
+        ai_idx = r2_cell.argmax()
         ai = exps[ai_idx]
-        li = cell._bas[ai_idx,gto.ANG_OF]
+        li = ls[ai_idx]
         ci = cs[ai_idx]
 
         r0 = cell.rcut  # initial guess

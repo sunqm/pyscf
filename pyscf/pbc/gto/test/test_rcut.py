@@ -60,6 +60,32 @@ class KnownValues(unittest.TestCase):
         Ls = eval_gto.get_lattice_Ls(cell)
         self.assertTrue(len(Ls) > 15)
 
+    def test_ignorable_diffused_basis(self):
+        cell = gto.M(
+            atom='''C   1.3    .2       .3
+        ''',
+            a=numpy.eye(3)*3,
+            basis='''
+C    S
+      7.5  0.600000
+      1.9  0.800000
+      0.6  0.000003''')
+        self.assertTrue(5 < cell.rcut and cell.rcut < 6)
+
+    def test_ignorable_compact_basis(self):
+        cell = pyscf.M(
+            atom='''C   1.3    .2       .3
+                    C   .19   .1      1.1
+        ''',
+            a=numpy.eye(3)*3,
+            basis='''
+C    S
+      7.5  0.000003
+      2.9  0.800000
+      0.6  0.200000''')
+        ke_cutoff = gto.cell.estimate_ke_cutoff(cell)
+        self.assertTrue(ke_cutoff > 250)
+
 if __name__ == '__main__':
     print("Test rcut and the errorsin pbc.gto.cell")
     unittest.main()

@@ -450,6 +450,32 @@ class KnownValues(unittest.TestCase):
             v1 = load(tmpf.name, kpts[[0, 0]])
             self.assertAlmostEqual(abs(ref - v1).max(), 0, 7)
 
+    def test_ignorable_diffused_basis(self):
+        cell = pyscf.M(
+            atom='''C   1.3    .2       .3
+                    C   .19   .1      1.1
+        ''',
+            a=np.eye(3)*3,
+            basis='''
+C    S
+      7.5  0.600000
+      1.9  0.800000
+      0.6  0.000002''')
+        omega = .2
+        df = rsdf_builder._RSGDFBuilder(cell, cell).build(omega=omega)
+        int3c = df.gen_int3c_kernel('int3c2e', aosym='s1', return_complex=True)
+        dat = int3c()
+
+        cell.basis = '''
+C    S
+      7.5  0.600000
+      1.9  0.800000'''
+        cell.build()
+        df = rsdf_builder._RSGDFBuilder(cell, cell).build(omega=omega)
+        int3c = df.gen_int3c_kernel('int3c2e', aosym='s1', return_complex=True)
+        ref = int3c()
+        self.assertAlmostEqual(abs(dat - ref).max(), 0, 5)
+
 if __name__ == '__main__':
     print("Full Tests for rsdf_builder")
     unittest.main()
