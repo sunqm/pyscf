@@ -938,8 +938,8 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
     if rs_cell.nbas == 0 or auxcell.nbas == 0:
         return np.zeros(1)
 
-    aux_exps, aux_cs = pbcgto.cell._extract_pgto_params(rs_auxcell, 'diffused')
-    aux_ls = rs_auxcell._bas[:,gto.ANG_OF]
+    aux_exps, aux_cs = pbcgto.cell._extract_pgto_params(auxcell, 'diffused')
+    aux_ls = auxcell._bas[:,gto.ANG_OF]
     r2_aux = np.log(aux_cs**2 / precision * 10**aux_ls) / aux_exps
     ak_idx = r2_aux.argmax()
     lk = aux_ls[ak_idx]
@@ -948,7 +948,7 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
 
     cell_exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
     ls = rs_cell._bas[:,gto.ANG_OF]
-    r2_cell = np.log(cs**2 / precision * 10**ls) / exps
+    r2_cell = np.log(cs**2 / precision * 10**ls) / cell_exps
     ai_idx = r2_cell.argmax()
     ai = cell_exps[ai_idx]
     aj = cell_exps
