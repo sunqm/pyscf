@@ -933,7 +933,7 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
     '''Estimate rcut for 3c2e integrals'''
     if precision is None:
         # Adjust precision a little bit as errors are found slightly larger than cell.precision.
-        precision = rs_cell.precision * 1e-1
+        precision = rs_cell.precision
 
     if rs_cell.nbas == 0 or auxcell.nbas == 0:
         return np.zeros(1)
@@ -973,8 +973,8 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
     fac *= fl / precision
 
     r0 = rs_cell.rcut
-    r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
-    r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
+    r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
+    r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
     rcut = r0
 
     if exclude_dd_block:
@@ -1004,8 +1004,8 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
             fac *= fl / precision
 
             r0 = rs_cell.rcut
-            r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
-            r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
+            r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
+            r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
             rcut[smooth_mask] = r0
     return rcut
 
@@ -1037,7 +1037,7 @@ def estimate_eta_for_ke_cutoff(cell, ke_cutoff, precision=None):
     fac = 64*np.pi**5*c1 * (aij*ke_cutoff*2)**-.5 / precision
 
     eta = 4.
-    eta = 1./(np.log(fac * eta**-1.5)*2 / ke_cutoff - 1./aij)
+    eta = 1./(np.log(fac * eta**-1.5 + 1e-200)*2 / ke_cutoff - 1./aij)
     if eta < 0:
         eta = 4.
     else:
@@ -1060,6 +1060,6 @@ def estimate_ke_cutoff_for_eta(cell, eta, precision=None):
     fac /= precision
 
     Ecut = 20.
-    Ecut = np.log(fac * (Ecut*2)**(-.5)) * 2*theta
-    Ecut = np.log(fac * (Ecut*2)**(-.5)) * 2*theta
+    Ecut = np.log(fac * (Ecut*2       )**(-.5)) * 2*theta
+    Ecut = np.log(fac * (Ecut*2+1e-200)**(-.5)) * 2*theta
     return Ecut

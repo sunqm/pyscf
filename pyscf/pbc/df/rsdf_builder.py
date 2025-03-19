@@ -1418,7 +1418,7 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
     '''Estimate rcut for 3c2e SR-integrals'''
     if precision is None:
         # Adjust precision a little bit as errors are found slightly larger than cell.precision.
-        precision = rs_cell.precision * 1e-1
+        precision = rs_cell.precision
 
     if rs_cell.nbas == 0 or rs_auxcell.nbas == 0:
         return np.zeros(1)
@@ -1462,13 +1462,13 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
     sfac = aij*aj/(aij*aj + ai*theta)
     fl = 2
     fac = 2**li*np.pi**2.5*c1 * theta**(l3-.5)
-    fac *= 2*np.pi/rs_cell.vol/theta
+    fac *= 2*np.pi/(rs_cell.vol*theta) * (l3+1)
     fac /= aij**(li+1.5) * ak**(lk+1.5) * aj**lj
     fac *= fl / precision
 
     r0 = rs_cell.rcut  # initial guess
-    r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
-    r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
+    r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
+    r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
     rcut = r0
 
     if exclude_dd_block:
@@ -1498,8 +1498,8 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
             fac *= fl / precision
 
             r0 = rs_cell.rcut
-            r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
-            r0 = (np.log(fac * r0 * (sfac*r0)**(l3-1) + 1.) / (sfac*theta))**.5
+            r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
+            r0 = (np.log(fac * r0 * (sfac*r0+1e-200)**(l3-1) + 1.) / (sfac*theta))**.5
             rcut[smooth_mask] = r0
     return rcut
 

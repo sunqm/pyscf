@@ -260,12 +260,12 @@ def _estimate_ke_cutoff(alpha, l, c, precision, omega=0):
     fac = 8*np.pi**5 * c**4*norm_ang / (2*alpha)**(4*l+2) / precision
     Ecut = 20.
     if omega <= 0:
-        Ecut = np.log(fac * (Ecut*.5)**(2*l-.5) + 1.) * 2*alpha
-        Ecut = np.log(fac * (Ecut*.5)**(2*l-.5) + 1.) * 2*alpha
+        Ecut = np.log(fac * (Ecut*.5       )**(2*l-.5) + 1.) * 2*alpha
+        Ecut = np.log(fac * (Ecut*.5+1e-200)**(2*l-.5) + 1.) * 2*alpha
     else:
         theta = 1./(1./(2*alpha) + 1./(2*omega**2))
-        Ecut = np.log(fac * (Ecut*.5)**(2*l-.5) + 1.) * theta
-        Ecut = np.log(fac * (Ecut*.5)**(2*l-.5) + 1.) * theta
+        Ecut = np.log(fac * (Ecut*.5       )**(2*l-.5) + 1.) * theta
+        Ecut = np.log(fac * (Ecut*.5+1e-200)**(2*l-.5) + 1.) * theta
     return Ecut
 
 def estimate_ke_cutoff(cell, precision=None):

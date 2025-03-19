@@ -442,12 +442,12 @@ def _estimate_ke_cutoff(alpha, l, c, precision=INTEGRAL_PRECISION, omega=0):
     fac = 32*np.pi**2*(2*np.pi)**1.5 * c**2*norm_ang / (2*alpha)**(2*l+.5) / precision
     Ecut = 20.
     if omega <= 0:
-        Ecut = np.log(fac * (Ecut*2)**(l-.5) + 1.) * 4*alpha
-        Ecut = np.log(fac * (Ecut*2)**(l-.5) + 1.) * 4*alpha
+        Ecut = np.log(fac * (Ecut*2       )**(l-.5) + 1.) * 4*alpha
+        Ecut = np.log(fac * (Ecut*2+1e-200)**(l-.5) + 1.) * 4*alpha
     else:
         theta = 1./(1./(4*alpha) + 1./(2*omega**2))
-        Ecut = np.log(fac * (Ecut*2)**(l-.5) + 1.) * theta
-        Ecut = np.log(fac * (Ecut*2)**(l-.5) + 1.) * theta
+        Ecut = np.log(fac * (Ecut*2       )**(l-.5) + 1.) * theta
+        Ecut = np.log(fac * (Ecut*2+1e-200)**(l-.5) + 1.) * theta
     return Ecut
 
 def estimate_ke_cutoff(cell, precision=None):
@@ -475,7 +475,7 @@ def _extract_pgto_params(cell, op='diffused'):
             c = abs(cell._libcint_ctr_coeff(i)).max(axis=1)
             l = cell.bas_angular(i)
             # A quick estimation for the radius that each primitive GTO vanishes
-            r2 = np.log(c**2 / precision * 10**l) / e
+            r2 = np.log(c**2 / precision * 10**l + 1e-200) / e
             idx = r2.argmax()
             es.append(e[idx])
             cs.append(c[idx].max())
@@ -487,7 +487,7 @@ def _extract_pgto_params(cell, op='diffused'):
             l = cell.bas_angular(i)
             # A quick estimation for the resolution of planewaves that each
             # primitive GTO requires
-            ke = np.log(c**2 / precision * 50**l) * e
+            ke = np.log(c**2 / precision * 50**l + 1e-200) * e
             idx = ke.argmax()
             es.append(e[idx])
             cs.append(c[idx].max())

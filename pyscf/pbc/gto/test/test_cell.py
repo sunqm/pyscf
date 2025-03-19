@@ -569,6 +569,13 @@ class KnownValues(unittest.TestCase):
             r1 = cell.atom_coords()
             self.assertAlmostEqual(abs(ref - r1).max(), 0, 12)
 
+    def test_ignorable_basis(self):
+        cell = pgto.M(
+            atom='''C  0. 0. 0.''',
+            basis=[[0, [1. , 0], [.5, 1.]]],
+            a=np.eye(3)*2.5)
+        self.assertEqual(list(cell.mesh), [17, 17, 17])
+
 if __name__ == '__main__':
     print("Full Tests for pbc.gto.cell")
     unittest.main()
