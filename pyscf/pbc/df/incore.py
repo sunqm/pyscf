@@ -229,13 +229,14 @@ class Int3cBuilder(lib.StreamObject):
 
         if self.direct_scf_tol is None:
             omega = supmol.omega
-            aux_exp = np.hstack(auxcell.bas_exps()).min()
-            cell_exp = np.hstack(cell.bas_exps()).min()
+            aux_exp, _, aux_l = most_diffused_pgto(auxcell)
+            cell_exp, _, cell_l = most_diffused_pgto(cell)
             if omega == 0:
                 theta = 1./(1./cell_exp + 1./aux_exp)
             else:
                 theta = 1./(1./cell_exp + 1./aux_exp + omega**-2)
-            lattice_sum_factor = max(2*np.pi*cell.rcut/(cell.vol*theta), 1)
+            lsum = cell_l * 2 + aux_l + 1
+            lattice_sum_factor = max(2*np.pi*cell.rcut*lsum/(cell.vol*theta), 1)
             cutoff = cell.precision / lattice_sum_factor**2 * .1
             log.debug1('int3c_kernel integral omega=%g theta=%g cutoff=%g',
                        omega, theta, cutoff)
@@ -423,32 +424,33 @@ def _get_cache_size(cell, intor):
         cell._env.ctypes.data_as(ctypes.c_void_p))
     return cache_size
 
+def most_diffused_pgto(cell):
+    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'diffused')
+    ls = cell._bas[:,gto.ANG_OF]
+    r2 = np.log(cs**2 / cell.precision * 10**ls) / exps
+    idx = r2.argmax()
+    return exps[idx], cs[idx], ls[idx]
+
 def estimate_rcut(cell, auxcell, precision=None):
     '''Estimate rcut for 3c2e integrals'''
     if precision is None:
         precision = cell.precision
 
-    cell_exps = np.array([e.min() for e in cell.bas_exps()])
-    aux_exps = np.array([e.min() for e in auxcell.bas_exps()])
-    if cell_exps.size == 0 or aux_exps.size == 0:
+    if cell.nbas == 0 or auxcell.nbas == 0:
         return np.zeros(1)
 
-    ls = cell._bas[:,gto.ANG_OF]
-    cs = gto.gto_norm(ls, cell_exps)
+    ak, ck, lk = most_diffused_pgto(auxcell)
 
-    ai_idx = cell_exps.argmin()
-    ak_idx = aux_exps.argmin()
+    cell_exps, cs = pbcgto.cell._extract_pgto_params(cell, 'diffused')
+    ls = cell._bas[:,gto.ANG_OF]
+    r2_cell = np.log(cs**2 / precision * 10**ls) / cell_exps
+    ai_idx = r2_cell.argmax()
     ai = cell_exps[ai_idx]
     aj = cell_exps
-    ak = aux_exps[ak_idx]
-    li = cell._bas[ai_idx,gto.ANG_OF]
+    li = ls[ai_idx]
     lj = ls
-    lk = auxcell._bas[ak_idx,gto.ANG_OF]
-
     ci = cs[ai_idx]
     cj = cs
-    # Note ck normalizes the auxiliary basis \int \chi_k dr to 1
-    ck = 1./(4*np.pi) / gto.gaussian_int(lk+2, ak)
 
     aij = ai + aj
     lij = li + lj
@@ -459,6 +461,7 @@ def estimate_rcut(cell, auxcell, precision=None):
     sfac = aij*aj/(aij*aj + ai*theta)
     fl = 2
     fac = 2**(li+1)*np.pi**3.5*c1 * theta**(l3-1.5) / aij**(lij+1.5) / ak**(lk+1.5)
+    fac *= 2*np.pi/(cell.vol*theta) * (l3+1)
     fac *= (1 + ai/aj)**lj * fl / precision
 
     r0 = cell.rcut

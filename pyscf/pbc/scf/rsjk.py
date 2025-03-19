@@ -1183,7 +1183,7 @@ def estimate_rcut(rs_cell, omega, precision=None,
     '''Estimate rcut for 2e SR-integrals'''
     if precision is None:
         # Adjust precision a little bit as errors are found slightly larger than cell.precision.
-        precision = rs_cell.precision * 1e-1
+        precision = rs_cell.precision
 
     rs_cell = rs_cell
     exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
@@ -1226,7 +1226,7 @@ def estimate_rcut(rs_cell, omega, precision=None,
     sfac = omega**2*aj*al/(aj*al + (aj+al)*omega**2) / theta
     fl = 2
     fac = 2**(li+lk)*np.pi**2.5*c1 * theta**(l4-.5)
-    fac *= 2*np.pi/rs_cell.vol/theta
+    fac *= 2*np.pi/rs_cell.vol/theta * (l4+1)
     fac /= aij**(li+1.5) * akl**(lk+1.5) * aj**lj * al**ll
     fac *= fl / precision
 

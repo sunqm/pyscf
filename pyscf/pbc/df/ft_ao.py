@@ -676,9 +676,12 @@ class ExtendedMole(gto.Mole):
         cell_bas_coords = rs_cell.atom_coords()[rs_cell._bas[:,gto.ATOM_OF]]
 
         if cutoff is None:
-            theta_ij = cell_exps.min() / 2
+            r2 = np.log(cell_cs**2 / rs_cell.precision * 10**cell_l) / cell_exps
+            idx = r2.argmax()
+            theta_ij = cell_exps[idx] / 2
+            lsum = cell_l[idx] * 2 + 1
             vol = rs_cell.vol
-            lattice_sum_factor = max(2*np.pi*rs_cell.rcut/(vol*theta_ij), 1)
+            lattice_sum_factor = max(2*np.pi*rs_cell.rcut*lsum/(vol*theta_ij), 1)
             cutoff = rs_cell.precision/lattice_sum_factor * .1
             logger.debug(self, 'Set ft_ao cutoff to %g', cutoff)
 
