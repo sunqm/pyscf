@@ -4171,3 +4171,37 @@ def classify_ecp_pseudo(mol, ecp, pp):
             ecp_as_pp.update(pp_left)
         pp = ecp_as_pp
     return ecp, pp
+
+def extract_pgtos(mol, op='diffused'):
+    '''A helper function to extract exponents and contraction coefficients of
+    the most diffused or compact primitive GTOs for each shell. These exponents
+    and coefficients are typically used in estimating rcut and Ecut for PBC
+    methods.
+    '''
+    if op != 'diffused' and op != 'compact':
+        raise RuntimeError(f'Unsupported operation {op}')
+
+    e = np.hstack(mol.bas_exps())
+    c = np.hstack([abs(mol._libcint_ctr_coeff(i)).max(axis=1)
+                   for i in range(mol.nbas)])
+    l = np.repeat(mol._bas[:,ANG_OF], mol._bas[:,NPRIM_OF])
+    atom_id = np.repeat(mol._bas[:,ATOM_OF], mol._bas[:,NPRIM_OF])
+    basis_id = np.repeat(np.arange(mol.nbas), mol._bas[:,NPRIM_OF])
+    precision = 1e-8
+    if op == 'diffused':
+        # A quick estimation for the radius that each primitive GTO decays to the
+        # value smaller than the required precision
+        r2 = np.log(c**2/precision * 10**l + 1e-200) / e
+        # groupby.argmin()
+        r2_order = np.argsort(-r2)
+        _, idx = np.unique(basis_id[r2_order], return_index=True)
+        idx = r2_order[idx]
+    else:
+        # A quick estimation for the resolution of planewaves that each
+        # primitive GTO requires
+        ke = np.log(c**2 / precision * 50**l + 1e-200) * e
+        # groupby.argmax()
+        ke_order = np.argsort(-ke)
+        _, idx = np.unique(basis_id[ke_order], return_index=True)
+        idx = ke_order[idx]
+    return e[idx], c[idx]
