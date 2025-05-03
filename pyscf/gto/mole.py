@@ -4172,7 +4172,7 @@ def classify_ecp_pseudo(mol, ecp, pp):
         pp = ecp_as_pp
     return ecp, pp
 
-def extract_pgtos(mol, op='diffused'):
+def extract_pgto_params(mol, op='diffused'):
     '''A helper function to extract exponents and contraction coefficients of
     the most diffused or compact primitive GTOs for each shell. These exponents
     and coefficients are typically used in estimating rcut and Ecut for PBC

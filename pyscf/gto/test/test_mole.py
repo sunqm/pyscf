@@ -1077,17 +1077,17 @@ H    P
         v1 = mol1.intor('int1e_nuc')
         self.assertAlmostEqual(abs(v0 - v1).max(), 0, 12)
 
-    def test_extract_pgtos(self):
+    def test_extract_pgto_params(self):
         mol = gto.M(atom='C 0 0 0; C 0 0 1', basis='''
 C    S
 7.5        0.40
 1.6        0.90
 1.0        0.01''')
-        es = gto.extract_pgtos(mol, 'diffused')[0]
+        es = gto.extract_pgto_params(mol, 'diffused')[0]
         self.assertAlmostEqual(abs(es - np.array([1.6, 1.6])).max(), 0, 12)
 
         mol = gto.M(atom='H 0 0 0; N 0 0 1', basis='ccpvdz')
-        es = gto.extract_pgtos(mol, 'compact')[0]
+        es = gto.extract_pgto_params(mol, 'compact')[0]
         self.assertAlmostEqual(
             abs(es - np.array([13.01, 0.122, 0.727, 9046., 0.2248, 13.55, 0.2185, 0.817])).max(), 0, 12)
 

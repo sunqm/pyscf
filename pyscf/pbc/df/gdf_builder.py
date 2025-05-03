@@ -105,7 +105,10 @@ class _CCGDFBuilder(rsdf_builder._RSGDFBuilder):
         self.dump_flags()
 
         exp_min = np.hstack(cell.bas_exps()).min()
-        lattice_sum_factor = max((2*cell.rcut)**3/cell.vol * 1/exp_min, 1)
+        vol = cell.vol
+        rad = vol**(-1./3) * cell.rcut + 1
+        surface = 4*np.pi * rad**2
+        lattice_sum_factor = 2*np.pi*cell.rcut/(vol*exp_min) + surface
         cutoff = cell.precision / lattice_sum_factor * .1
         self.direct_scf_tol = cutoff
         log.debug('Set _CCGDFBuilder.direct_scf_tol to %g', cutoff)
@@ -555,7 +558,10 @@ class _CCNucBuilder(_CCGDFBuilder):
                   supmol.nbas, supmol.nao, supmol.npgto_nr())
 
         exp_min = np.hstack(cell.bas_exps()).min()
-        lattice_sum_factor = max((2*cell.rcut)**3/cell.vol * 1/exp_min, 1)
+        vol = cell.vol
+        rad = vol**(-1./3) * cell.rcut + 1
+        surface = 4*np.pi * rad**2
+        lattice_sum_factor = 2*np.pi*cell.rcut/(vol*exp_min) + surface
         cutoff = cell.precision / lattice_sum_factor * .1
         self.direct_scf_tol = cutoff / cell.atom_charges().max()
         log.debug('Set _CCNucBuilder.direct_scf_tol to %g', cutoff)
@@ -938,7 +944,7 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
     if rs_cell.nbas == 0 or auxcell.nbas == 0:
         return np.zeros(1)
 
-    aux_exps, aux_cs = pbcgto.cell._extract_pgto_params(auxcell, 'diffused')
+    aux_exps, aux_cs = gto.extract_pgto_params(auxcell, 'diffused')
     aux_ls = auxcell._bas[:,gto.ANG_OF]
     r2_aux = np.log(aux_cs**2 / precision * 10**aux_ls) / aux_exps
     ak_idx = r2_aux.argmax()
@@ -946,7 +952,7 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
     ak = aux_exps[ak_idx]
     ck = aux_cs[ak_idx]
 
-    cell_exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
+    cell_exps, cs = gto.extract_pgto_params(rs_cell, 'diffused')
     ls = rs_cell._bas[:,gto.ANG_OF]
     r2_cell = np.log(cs**2 / precision * 10**ls) / cell_exps
     ai_idx = r2_cell.argmax()
@@ -968,7 +974,11 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
     sfac = aij*aj/(aij*aj + ai*theta)
     fl = 2
     fac = 2**li*np.pi**2.5*c1 * theta**(l3-.5)
-    fac *= 2*np.pi/rs_cell.vol/theta
+    vol = rs_cell.vol
+    rad = vol**(-1./3) * rs_cell.rcut + 1
+    surface = 4*np.pi * rad**2
+    lattice_sum_factor = 2*np.pi*rs_cell.rcut/(vol*theta) + surface
+    fac *= lattice_sum_factor
     fac /= aij**(li+1.5) * ak**(lk+1.5) * aj**lj
     fac *= fl / precision
 
@@ -999,7 +1009,11 @@ def estimate_rcut(rs_cell, auxcell, precision=None, exclude_dd_block=False):
             sfac = aij*aj/(aij*aj + ai*theta)
             fl = 2
             fac = 2**li*np.pi**2.5*c1 * theta**(l3-.5)
-            fac *= 2*np.pi/rs_cell.vol/theta
+            vol = rs_cell.vol
+            rad = vol**(-1./3) * rs_cell.rcut + 1
+            surface = 4*np.pi * rad**2
+            lattice_sum_factor = 2*np.pi*rs_cell.rcut/(vol*theta) + surface
+            fac *= lattice_sum_factor
             fac /= aij**(li+1.5) * ak**(lk+1.5) * aj**lj
             fac *= fl / precision
 

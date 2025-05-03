@@ -158,10 +158,10 @@ class _RSGDFBuilder(Int3cBuilder):
         self.dump_flags()
 
         exp_min = np.hstack(cell.bas_exps()).min()
-        # For each basis i in (ij|, small integrals accumulated by the lattice
-        # sum for j are not negligible. (2*cell.rcut)**3/vol is roughly the
-        # number of basis i and 1./exp_min for the non-negligible basis j.
-        lattice_sum_factor = max((2*cell.rcut)**3/cell.vol * 1/exp_min, 1)
+        vol = cell.vol
+        rad = vol**(-1./3) * cell.rcut + 1
+        surface = 4*np.pi * rad**2
+        lattice_sum_factor = 2*np.pi*cell.rcut/(vol*exp_min) + surface
         cutoff = cell.precision / lattice_sum_factor * .1
         self.direct_scf_tol = cutoff
         log.debug('Set _RSGDFBuilder.direct_scf_tol to %g', cutoff)
@@ -1133,9 +1133,10 @@ class _RSNucBuilder(_RSGDFBuilder):
         self.dump_flags()
 
         exp_min = np.hstack(cell.bas_exps()).min()
-        # For each basis i in (ij|, small integrals accumulated by the lattice
-        # sum for j are not negligible.
-        lattice_sum_factor = max((2*cell.rcut)**3/cell.vol * 1/exp_min, 1)
+        vol = cell.vol
+        rad = vol**(-1./3) * cell.rcut + 1
+        surface = 4*np.pi * rad**2
+        lattice_sum_factor = 2*np.pi*cell.rcut/(vol*exp_min) + surface
         cutoff = cell.precision / lattice_sum_factor * .1
         self.direct_scf_tol = cutoff / cell.atom_charges().max()
         log.debug('Set _RSNucBuilder.direct_scf_tol to %g', cutoff)
@@ -1429,7 +1430,7 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
         return np.zeros(1)
 
     # Search for the most diffused auxiliary basis function
-    aux_exps, aux_cs = pbcgto.cell._extract_pgto_params(rs_auxcell, 'diffused')
+    aux_exps, aux_cs = gto.extract_pgto_params(rs_auxcell, 'diffused')
     aux_ls = rs_auxcell._bas[:,gto.ANG_OF]
     r2_aux = np.log(aux_cs**2 / precision * 10**aux_ls) / aux_exps
     if exclude_d_aux:
@@ -1442,7 +1443,7 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
     ck = aux_cs[ak_idx]
 
     # the most diffused orbital basis
-    cell_exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
+    cell_exps, cs = gto.extract_pgto_params(rs_cell, 'diffused')
     ls = rs_cell._bas[:,gto.ANG_OF]
     r2_cell = np.log(cs**2 / precision * 10**ls) / cell_exps
     ai_idx = r2_cell.argmax()
@@ -1462,7 +1463,11 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
     sfac = aij*aj/(aij*aj + ai*theta)
     fl = 2
     fac = 2**li*np.pi**2.5*c1 * theta**(l3-.5)
-    fac *= 2*np.pi/(rs_cell.vol*theta) * (l3+1)
+    vol = rs_cell.vol
+    rad = vol**(-1./3) * rs_cell.rcut + 1
+    surface = 4*np.pi * rad**2
+    lattice_sum_factor = 2*np.pi*rs_cell.rcut/(vol*theta) + surface
+    fac *= lattice_sum_factor
     fac /= aij**(li+1.5) * ak**(lk+1.5) * aj**lj
     fac *= fl / precision
 
@@ -1493,7 +1498,8 @@ def estimate_rcut(rs_cell, rs_auxcell, omega, precision=None,
             sfac = aij*aj/(aij*aj + ai*theta)
             fl = 2
             fac = 2**li*np.pi**2.5*c1 * theta**(l3-.5)
-            fac *= 2*np.pi/rs_cell.vol/theta
+            lattice_sum_factor = 2*np.pi*rs_cell.rcut/(vol*theta) + surface
+            fac *= lattice_sum_factor
             fac /= aij**(li+1.5) * ak**(lk+1.5) * aj**lj
             fac *= fl / precision
 
@@ -1507,13 +1513,8 @@ def estimate_ft_rcut(rs_cell, precision=None, exclude_dd_block=False):
     '''Remove less important basis based on Schwarz inequality
     Q_ij ~ S_ij * (sqrt(2aij/pi) * aij**(lij*2) * (4*lij-1)!!)**.5
     '''
-    if precision is None:
-        # Similar to ft_ao.estimate_rcut, adjusts precision to improve hermitian
-        # symmetry of MO integrals for post-HF.
-        precision = rs_cell.precision * 1e-2
-
     # consider only the most diffused component of a basis
-    exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
+    exps, cs = gto.extract_pgto_params(rs_cell, 'diffused')
     ls = rs_cell._bas[:,gto.ANG_OF]
     ai_idx = exps.argmin()
     ai = exps[ai_idx]
@@ -1527,19 +1528,21 @@ def estimate_ft_rcut(rs_cell, precision=None, exclude_dd_block=False):
     c1 = ci * cj * norm_ang
     theta = ai * aj / aij
     fac = c1 * (np.pi/aij)**1.5 * (2*aij/np.pi)**.25
-    fac /= precision
+    vol = rs_cell.vol
+    rad = vol**(-1./3) * rs_cell.rcut + 1
+    surface = 4*np.pi * rad**2
+    lattice_sum_factor = 2*np.pi*rs_cell.rcut/(vol*exps.min()) + surface
+    fac *= lattice_sum_factor / precision
 
     r0 = rs_cell.rcut
     # See also the estimator implemented in lib/vhf/nr_sr_vhf.c
-    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
-    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
-    fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
-    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
+    fac_dri = li/2 * np.log(li * .5/aij + (aj/aij * r0)**2 + 1e-9)
+    fac_drj = lj/2 * np.log(lj * .5/aij + (ai/aij * r0)**2 + 1e-9)
+    r0 = ((fac + fac_dri + fac_drj) / theta)**.5
 
-    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
-    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
-    fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
-    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
+    fac_dri = li/2 * np.log(li * .5/aij + (aj/aij * r0)**2 + 1e-9)
+    fac_drj = lj/2 * np.log(lj * .5/aij + (ai/aij * r0)**2 + 1e-9)
+    r0 = ((fac + fac_dri + fac_drj) / theta)**.5
     rcut = r0
 
     if exclude_dd_block:
@@ -1559,18 +1562,17 @@ def estimate_ft_rcut(rs_cell, precision=None, exclude_dd_block=False):
             c1 = ci * cj * norm_ang
             theta = ai * aj / aij
             fac = c1 * (np.pi/aij)**1.5 * (2*aij/np.pi)**.25
-            fac /= precision
+            lattice_sum_factor = 2*np.pi*rs_cell.rcut/(vol*exps.min()) + surface
+            fac *= lattice_sum_factor / precision
 
             r0 = rs_cell.rcut
-            fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
-            fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
-            fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
-            r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
+            fac_dri = li/2 * np.log(li * .5/aij + (aj/aij * r0)**2 + 1e-9)
+            fac_drj = lj/2 * np.log(lj * .5/aij + (ai/aij * r0)**2 + 1e-9)
+            r0 = ((fac + fac_dri + fac_drj) / theta)**.5
 
-            fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
-            fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
-            fl = 2*np.pi/rs_cell.vol*r0/theta + 1.
-            r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
+            fac_dri = li/2 * np.log(li * .5/aij + (aj/aij * r0)**2 + 1e-9)
+            fac_drj = lj/2 * np.log(lj * .5/aij + (ai/aij * r0)**2 + 1e-9)
+            r0 = ((fac + fac_dri + fac_drj) / theta)**.5
             rcut[smooth_mask] = r0
     return rcut
 
@@ -1594,7 +1596,7 @@ def estimate_ke_cutoff_for_omega(cell, omega, precision=None):
     '''
     if precision is None:
         precision = cell.precision
-    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'compact')
+    exps, cs = gto.extract_pgto_params(cell, 'compact')
     ls = cell._bas[:,gto.ANG_OF]
     cs = gto.gto_norm(ls, exps)
     Ecut = aft._estimate_ke_cutoff(exps, ls, cs, precision, omega)

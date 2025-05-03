@@ -671,7 +671,7 @@ class ExtendedMole(gto.Mole):
         rs_cell = self.rs_cell
         supmol = self
         # consider only the most diffused component of a basis
-        cell_exps, cell_cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
+        cell_exps, cell_cs = gto.extract_pgtos(rs_cell, 'diffused')
         cell_l = rs_cell._bas[:,gto.ANG_OF]
         cell_bas_coords = rs_cell.atom_coords()[rs_cell._bas[:,gto.ATOM_OF]]
 
@@ -685,7 +685,7 @@ class ExtendedMole(gto.Mole):
             cutoff = rs_cell.precision/lattice_sum_factor * .1
             logger.debug(self, 'Set ft_ao cutoff to %g', cutoff)
 
-        supmol_exps, supmol_cs = pbcgto.cell._extract_pgto_params(supmol, 'diffused')
+        supmol_exps, supmol_cs = gto.extract_pgto_params(supmol, 'diffused')
         supmol_bas_coords = supmol.atom_coords()[supmol._bas[:,gto.ATOM_OF]]
         supmol_l = supmol._bas[:,gto.ANG_OF]
 
@@ -751,20 +751,11 @@ def estimate_rcut(cell, precision=None):
     '''Estimate rcut for each basis based on Schwarz inequality
     Q_ij ~ S_ij * (sqrt(2aij/pi) * aij**(lij*2) * (4*lij-1)!!)**.5
     '''
-    if precision is None:
-        # The rcut estimated with this function is sufficient to converge
-        # the integrals to the required precision. Errors around the required
-        # precision is found when checking hermitian symmetry of the integrals.
-        # The discrepancy in hermitian symmetry may cause issues in post-HF
-        # methods which assume the hermitian symmetry in MO integrals.
-        # Therefore precision is adjusted to ensure hermitian symmetry.
-        precision = cell.precision * 1e-2
-
     if cell.nbas == 0:
         return np.zeros(1)
 
     # consider only the most diffused component of a basis
-    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'diffused')
+    exps, cs = gto.extract_pgto_params(cell, 'diffused')
     ls = cell._bas[:,gto.ANG_OF]
     r2_cell = np.log(cs**2 / precision * 10**ls) / exps
     ai_idx = r2_cell.argmax()
@@ -779,16 +770,18 @@ def estimate_rcut(cell, precision=None):
     c1 = ci * cj * norm_ang
     theta = ai * aj / aij
     fac = c1 * (np.pi/aij)**1.5 * (2*aij/np.pi)**.25
-    fac /= precision
+    vol = cell.vol
+    rad = vol**(-1./3) * cell.rcut + 1
+    surface = 4*np.pi * rad**2
+    lattice_sum_factor = 2*np.pi*cell.rcut/(vol*exps.min()) + surface
+    fac *= lattice_sum_factor / precision
 
     r0 = cell.rcut
-    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
-    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
-    fl = 2*np.pi/cell.vol * r0/theta + 1.
-    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
+    fac_dri = li/2 * np.log(li * .5/aij + (aj/aij * r0)**2 + 1e-9)
+    fac_drj = lj/2 * np.log(lj * .5/aij + (ai/aij * r0)**2 + 1e-9)
+    r0 = ((fac + fac_dri + fac_drj) / theta)**.5
 
-    fac_dri = (li * .5/aij + (aj/aij * r0)**2) ** (li/2)
-    fac_drj = (lj * .5/aij + (ai/aij * r0)**2) ** (lj/2)
-    fl = 2*np.pi/cell.vol * r0/theta + 1.
-    r0 = (np.log(fac * fac_dri * fac_drj * fl + 1.) / theta)**.5
+    fac_dri = li/2 * np.log(li * .5/aij + (aj/aij * r0)**2 + 1e-9)
+    fac_drj = lj/2 * np.log(lj * .5/aij + (ai/aij * r0)**2 + 1e-9)
+    r0 = ((fac + fac_dri + fac_drj) / theta)**.5
     return r0

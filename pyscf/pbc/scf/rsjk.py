@@ -1186,7 +1186,7 @@ def estimate_rcut(rs_cell, omega, precision=None,
         precision = rs_cell.precision
 
     rs_cell = rs_cell
-    exps, cs = pbcgto.cell._extract_pgto_params(rs_cell, 'diffused')
+    exps, cs = gto.extract_pgtos(rs_cell, 'diffused')
     ls = rs_cell._bas[:,gto.ANG_OF]
     r2_cell = np.log(cs**2 / precision * 10**ls) / exps
     diffused_idx = r2_cell.argmax()

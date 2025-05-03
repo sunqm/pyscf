@@ -425,7 +425,7 @@ def _get_cache_size(cell, intor):
     return cache_size
 
 def most_diffused_pgto(cell):
-    exps, cs = pbcgto.cell._extract_pgto_params(cell, 'diffused')
+    exps, cs = gto.extract_pgto_params(cell, 'diffused')
     ls = cell._bas[:,gto.ANG_OF]
     r2 = np.log(cs**2 / cell.precision * 10**ls) / exps
     idx = r2.argmax()
@@ -441,7 +441,7 @@ def estimate_rcut(cell, auxcell, precision=None):
 
     ak, ck, lk = most_diffused_pgto(auxcell)
 
-    cell_exps, cs = pbcgto.cell._extract_pgto_params(cell, 'diffused')
+    cell_exps, cs = gto.extract_pgto_params(cell, 'diffused')
     ls = cell._bas[:,gto.ANG_OF]
     r2_cell = np.log(cs**2 / precision * 10**ls) / cell_exps
     ai_idx = r2_cell.argmax()
@@ -461,7 +461,11 @@ def estimate_rcut(cell, auxcell, precision=None):
     sfac = aij*aj/(aij*aj + ai*theta)
     fl = 2
     fac = 2**(li+1)*np.pi**3.5*c1 * theta**(l3-1.5) / aij**(lij+1.5) / ak**(lk+1.5)
-    fac *= 2*np.pi/(cell.vol*theta) * (l3+1)
+    vol = cell.vol
+    rad = vol**(-1./3) * cell.rcut + 1
+    surface = 4*np.pi * rad**2
+    lattice_sum_factor = 2*np.pi*cell.rcut/(vol*theta) + surface
+    fac *= lattice_sum_factor
     fac *= (1 + ai/aj)**lj * fl / precision
 
     r0 = cell.rcut
