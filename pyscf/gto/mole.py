@@ -25,7 +25,7 @@ import os
 import sys
 import types
 import re
-
+import functools
 import json
 import ctypes
 import numpy
@@ -3759,7 +3759,7 @@ class Mole(MoleBase):
         for mod in (scf, dft):
             method = getattr(mod, key, None)
             if callable(method):
-                return method(self)
+                return functools.partial(method, self)
 
         if 'TD' in key[:3]:
             if key in ('TDHF', 'TDA'):

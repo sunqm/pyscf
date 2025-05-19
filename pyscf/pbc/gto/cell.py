@@ -21,6 +21,7 @@ import os
 import sys
 import json
 import ctypes
+import functools
 import warnings
 import numpy as np
 import scipy.linalg
@@ -1327,7 +1328,7 @@ class Cell(mole.MoleBase):
         for mod in (scf, dft):
             method = getattr(mod, key, None)
             if callable(method):
-                return method(self)
+                return functools.partial(method, self)
 
         if key[0] == 'K':  # with k-point sampling
             if 'TD' in key[:4]:
