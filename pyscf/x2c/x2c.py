@@ -44,7 +44,6 @@ class X2CHelperBase(lib.StreamObject):
 
     def dump_flags(self, verbose=None):
         log = logger.new_logger(self, verbose)
-        log.info('\n')
         log.info('******** %s ********', self.__class__)
         log.info('approx = %s',    self.approx)
         log.info('xuncontract = %d', self.xuncontract)
