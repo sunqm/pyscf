@@ -25,9 +25,9 @@ C 1.685068664391   1.685068664391   1.685068664391
 
 # Use a larger basis set to expand ZORA operator in matrix form
 xbasis = (
-    'unc-ano', gto.etbs([(0, 8, 1e7, 2.5),   # s-function
-                         (1, 5, 5e4, 2.5),   # p-function
-                         (2, 2, 1e3, 2.5)]))
+    'unc-631g', gto.etbs([(0, 10, 1e4, 2.),   # s-function
+                          (1, 5 , 2e1, 2.),   # p-function
+                         ]))
 
 mf = cell.RKS(xc='pbe').density_fit()
 mf = sfzora(mf)

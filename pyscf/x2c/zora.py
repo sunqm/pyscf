@@ -33,6 +33,7 @@ import numpy as np
 import scipy.linalg
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.gto import mole
 from pyscf.scf import hf, ghf
 from pyscf.x2c import x2c
 
@@ -53,6 +54,11 @@ class SpinFreeZORAHelper(x2c.X2CHelperBase):
             raise NotImplementedError
 
         xmol, contr_coeff = self.get_xmol(mol)
+        if self.basis is not None:
+            s22 = xmol.intor_symmetric('int1e_ovlp')
+            s21 = mole.intor_cross('int1e_ovlp', xmol, mol)
+            contr_coeff = lib.cho_solve(s22, s21)
+
         c = lib.param.LIGHT_SPEED
         t = xmol.intor_symmetric('int1e_kin')
 

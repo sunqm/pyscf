@@ -23,6 +23,7 @@ import numpy as np
 import scipy.linalg
 from pyscf import lib
 from pyscf.lib import logger
+from pyscf.gto import mole
 from pyscf.x2c import x2c
 from pyscf.pbc.scf import hf, ghf
 from pyscf.pbc.x2c.sfx2c1e import PBCX2CHelper
@@ -81,8 +82,13 @@ class SpinFreeZORAHelper(PBCX2CHelper):
             kpts_lst = np.zeros((1,3))
         else:
             kpts_lst = np.reshape(kpts, (-1,3))
-        # By default, we use uncontracted cell.basis plus additional steep orbital for modified Dirac equation.
+
         xcell, contr_coeff = self.get_xmol(cell)
+        if self.basis is not None:
+            s22 = xcell.intor_symmetric('int1e_ovlp')
+            s21 = mole.intor_cross('int1e_ovlp', xcell, cell)
+            contr_coeff = lib.cho_solve(s22, s21)
+
         c = lib.param.LIGHT_SPEED
 
         assert 'ATOM' in self.approx.upper()
