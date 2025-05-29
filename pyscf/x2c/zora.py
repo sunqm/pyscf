@@ -63,24 +63,25 @@ class SpinFreeZORAHelper(x2c.X2CHelperBase):
             for ia in range(xmol.natm):
                 ish0, ish1, p0, p1 = atom_slices[ia]
                 shls_slice = (ish0, ish1, ish0, ish1)
-                t_blk = t[p0:p1,p0:p1]
+                tloc = t[p0:p1,p0:p1]
                 with xmol.with_rinv_at_nucleus(ia):
                     z = -xmol.atom_charge(ia)
                     w = z * xmol.intor('int1e_prinvp', shls_slice=shls_slice)
-                x[p0:p1,p0:p1] = np.linalg.solve(t_blk - .25/c**2 * w, t_blk)
+                x[p0:p1,p0:p1] = np.linalg.solve(tloc - .25/c**2 * w, tloc)
         else:
             w = xmol.intor_symmetric('int1e_pnucp')
             x = np.linalg.solve(t - .25/c**2 * w, t)
 
         v = mol.intor_symmetric('int1e_nuc')
-        h_zora = v + contr_coeff.T.dot(t).dot(x).dot(contr_coeff)
+        if self.xuncontract and contr_coeff is not None:
+            t = contr_coeff.T.dot(t).dot(x).dot(contr_coeff)
+        h_zora = v + t
         return h_zora
 
 def sfzora(mf):
-    '''Spin-free ZORA.
+    '''Spin-free ZORA
     '''
     assert isinstance(mf, hf.SCF)
-
     if isinstance(mf, SFZORA_SCF):
         if mf.with_x2c is None:
             mf.with_x2c = SpinFreeZORAHelper(mf.mol)
@@ -93,11 +94,6 @@ def sfzora(mf):
     return lib.set_class(SFZORA_SCF(mf), (SFZORA_SCF, mf.__class__))
 
 class SFZORA_SCF(x2c._X2C_SCF):
-    '''
-    Attributes for spin-free X2C:
-        with_x2c : X2C object
-    '''
-
     __name_mixin__ = 'sfZORA'
 
     _keys = {'with_x2c'}

@@ -12,7 +12,16 @@ mol = pyscf.M(
     basis='ccpvdz-dk',
 )
 
-mf_zora = sfzora(mol.RHF()).run()
+mf_zora = sfzora(mol.RHF())
+# ZORA Hamiltonian is constructed in its matrix representation, derived from the
+# X2C matrix formuliasm. A larger basis set is required to expand ZORA operator
+# in matrix form. In the CBS limit, the matrix-ZORA is equivalent to the ZORA
+# Hamiltonian in operator form.
+mf_zora.with_x2c.basis = (
+    'unc-ano', gto.etbs([(0, 8, 1e7, 2.5),   # s-function
+                         (1, 5, 5e4, 2.5),   # p-function
+                         (2, 2, 1e3, 2.5)]))
+mf.run()
 
 mf_x2c = mol.RHF().x2c().run()
 

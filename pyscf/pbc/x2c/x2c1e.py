@@ -109,6 +109,7 @@ class X2C1E_GSCF(x2c._X2C_SCF):
 
 class SpinOrbitalX2C1EHelper(sfx2c1e.PBCX2CHelper):
     def get_hcore(self, cell=None, kpts=None):
+        from pyscf.pbc.df import df
         if cell is None:
             cell = self.cell
         if kpts is None:
@@ -119,7 +120,6 @@ class SpinOrbitalX2C1EHelper(sfx2c1e.PBCX2CHelper):
         xcell, contr_coeff = self.get_xmol(cell)
         if contr_coeff is not None:
             contr_coeff = _block_diag(contr_coeff)
-        from pyscf.pbc.df import df
         with_df = df.DF(xcell)
 
         c = lib.param.LIGHT_SPEED
