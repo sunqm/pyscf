@@ -163,6 +163,9 @@ class SFX2C1E_SCF(x2c._X2C_SCF):
 class SpinFreeX2CHelper(x2c.X2CHelperBase):
     '''1-component X2c (spin-free part only)
     '''
+
+    omega = 1.0
+
     def get_hcore(self, mol=None):
         '''1-component X2c Foldy-Wouthuysen (FW Hamiltonian  (spin-free part only)
         '''
@@ -177,30 +180,27 @@ class SpinFreeX2CHelper(x2c.X2CHelperBase):
         v = xmol.intor_symmetric('int1e_nuc')
         s = xmol.intor_symmetric('int1e_ovlp')
         w = xmol.intor_symmetric('int1e_pnucp')
-        if 'get_xmat' in self.__dict__:
-            # If the get_xmat method is overwritten by user, build the X
-            # matrix with the external get_xmat method
-            x = self.get_xmat(xmol)
-            h1 = x2c._get_hcore_fw(t, v, w, s, x, c)
 
-        elif 'ATOM' in self.approx.upper():
-            atom_slices = xmol.offset_nr_by_atom()
-            nao = xmol.nao_nr()
-            x = numpy.zeros((nao,nao))
-            for ia in range(xmol.natm):
-                ish0, ish1, p0, p1 = atom_slices[ia]
-                shls_slice = (ish0, ish1, ish0, ish1)
-                t1 = xmol.intor('int1e_kin', shls_slice=shls_slice)
-                s1 = xmol.intor('int1e_ovlp', shls_slice=shls_slice)
-                with xmol.with_rinv_at_nucleus(ia):
-                    z = -xmol.atom_charge(ia)
-                    v1 = z * xmol.intor('int1e_rinv', shls_slice=shls_slice)
-                    w1 = z * xmol.intor('int1e_prinvp', shls_slice=shls_slice)
-                x[p0:p1,p0:p1] = x2c._x2c1e_xmatrix(t1, v1, w1, s1, c)
-            h1 = x2c._get_hcore_fw(t, v, w, s, x, c)
-
-        else:
+        if self.approx.upper() == '1E':
             h1 = x2c._x2c1e_get_hcore(t, v, w, s, c)
+        else:
+            x = self.get_xmat(xmol)
+            if 'RS' in self.approx.upper():
+                logger.debug(self, 'Constructing X2C-RS1e Hcore')
+                nuc_model_backup = xmol._atm[:,2].copy()
+                # Set gaussian nuc-model, which enables the LR Coulomb for nuclear attraction
+                xmol._atm[:,2] = 2
+                xmol._env[xmol._atm[:,3]] = self.omega**2
+                vnuc_lr = xmol.intor_symmetric('int1e_nuc')
+                wnuc_lr = xmol.intor_symmetric('int1e_pnucp')
+                v_sr = v - vnuc_lr
+                w_sr = w - wnuc_lr
+                xmol._atm[:,2] = nuc_model_backup
+                h1 = x2c._get_hcore_fw(t, v_sr, w_sr, s, x, c)
+                h1 += vnuc_lr
+            else:
+                logger.debug(self, 'Constructing X2C-1e Hcore')
+                h1 = x2c._get_hcore_fw(t, v, w, s, x, c)
 
         if self.basis is not None:
             s22 = xmol.intor_symmetric('int1e_ovlp')
@@ -253,6 +253,7 @@ class SpinFreeX2CHelper(x2c.X2CHelperBase):
         assert ('1E' in self.approx.upper())
 
         if 'ATOM' in self.approx.upper():
+            logger.debug(self, 'Computing Atomic 1e X')
             atom_slices = xmol.offset_nr_by_atom()
             nao = xmol.nao_nr()
             x = numpy.zeros((nao,nao))
@@ -266,7 +267,23 @@ class SpinFreeX2CHelper(x2c.X2CHelperBase):
                     v1 = z * xmol.intor('int1e_rinv', shls_slice=shls_slice)
                     w1 = z * xmol.intor('int1e_prinvp', shls_slice=shls_slice)
                 x[p0:p1,p0:p1] = x2c._x2c1e_xmatrix(t1, v1, w1, s1, c)
+        elif 'RS' in self.approx.upper():
+            logger.debug(self, 'Computing RS1e X')
+            t = xmol.intor_symmetric('int1e_kin')
+            v = xmol.intor_symmetric('int1e_nuc')
+            s = xmol.intor_symmetric('int1e_ovlp')
+            w = xmol.intor_symmetric('int1e_pnucp')
+            nuc_model_backup = xmol._atm[:,2].copy()
+            xmol._atm[:,2] = 2
+            xmol._env[xmol._atm[:,3]] = self.omega**2
+            vnuc_lr = xmol.intor_symmetric('int1e_nuc')
+            wnuc_lr = xmol.intor_symmetric('int1e_pnucp')
+            v_sr = v - vnuc_lr
+            w_sr = w - wnuc_lr
+            xmol._atm[:,2] = nuc_model_backup
+            x = x2c._x2c1e_xmatrix(t, v_sr, w_sr, s, c)
         else:
+            logger.debug(self, 'Computing 1e X')
             t = xmol.intor_symmetric('int1e_kin')
             v = xmol.intor_symmetric('int1e_nuc')
             s = xmol.intor_symmetric('int1e_ovlp')
