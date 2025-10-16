@@ -1,0 +1,24 @@
+name: release-debug
+
+on:
+  workflow_dispatch:
+
+jobs:
+  release-pypi-macos-x86:
+    name: Build wheels for macos Intel chips
+    runs-on: macos-14-large
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+      - name: Install cibuildwheel
+        run: python -m pip install cibuildwheel
+      - name: Build wheels
+        env:
+          CIBW_BUILD: cp311-macosx_x86_64
+          CIBW_BUILD_VERBOSITY: "3"
+          CMAKE_CONFIGURE_ARGS: "-DWITH_F12=OFF -DENABLE_SMD=OFF"
+          CMAKE_BUILD_PARALLEL_LEVEL: "4"
+        run: python -m cibuildwheel --output-dir mac-wheels
+      - name: List available wheels
+        run: |
+            ls mac-wheels
