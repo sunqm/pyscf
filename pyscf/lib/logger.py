@@ -169,13 +169,13 @@ def timer(rec, msg, cpu0=None, wall0=None):
         cpu0 = rec._t0
     if wall0:
         rec._t0, rec._w0 = process_clock(), perf_counter()
-        if rec.verbose >= TIMER_LEVEL:
+        if rec.verbose >= getattr(rec, 'TIMER_LEVEL', TIMER_LEVEL):
             flush(rec, '    CPU time for %s %9.2f sec, wall time %9.2f sec'
                   % (msg, rec._t0-cpu0, rec._w0-wall0))
         return rec._t0, rec._w0
     else:
         rec._t0 = process_clock()
-        if rec.verbose >= TIMER_LEVEL:
+        if rec.verbose >= getattr(rec, 'TIMER_LEVEL', TIMER_LEVEL):
             flush(rec, '    CPU time for %s %9.2f sec' % (msg, rec._t0-cpu0))
         return rec._t0
 
@@ -197,6 +197,8 @@ class Logger:
         verbose : int
             Large value means more noise in the output file.
     '''
+    TIMER_LEVEL = TIMER_LEVEL
+
     def __init__(self, stdout=sys.stdout, verbose=NOTE):
         self.stdout = stdout
         self.verbose = verbose
