@@ -24,7 +24,6 @@ Reusable guidance for PySCF development. Paths below are relative to the reposit
 - Set `PYSCF_TMPDIR` or `TMPDIR` to a writable scratch directory.
 - `uv` is supported for developing PySCF alone. Prefer `virtualenv` when also developing namespace packages such as PySCF extensions or `pyscf-forge`; that combination has not been tested with `uv`.
 - To develop or debug C extensions, configure a native build with `cmake -S pyscf/lib -B pyscf/lib/build`, then compile with `cmake --build pyscf/lib/build`. Reuse an existing configured build and its dependency options where possible.
-- Do not create pull requests against the upstream repository unless explicitly asked.
 
 ## Code Style
 
@@ -39,6 +38,15 @@ Reusable guidance for PySCF development. Paths below are relative to the reposit
 * Prefer lightweight, deterministic tests, with minimal mocking.
 - Run the smallest relevant test selection. Documentation-only changes do not require numerical tests.
 - Investigate failures near numerical tolerances. Do not substantially relax tolerances or replace reference values merely to make tests pass.
+
+## AI Disclosure
+
+- When preparing a pull request or issue with AI assistance, include a `Notes`
+  section briefly describing how AI was used. Mention the AI tool or agent and
+  the nature of its assistance, such as code generation, testing, debugging, or
+  drafting.
+- Do not create pull requests against the upstream repository unless explicitly
+  asked.
 
 ## Skills
 
